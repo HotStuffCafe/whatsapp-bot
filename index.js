@@ -3,30 +3,31 @@ const OpenAI = require("openai");
 const fs = require("fs");
 
 const app = express();
-
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 const carts = {};
 
-const menuData = JSON.parse(
-  fs.readFileSync("./menu.json", "utf-8")
-);
-
+// 🔹 Load menu
+const menuData = JSON.parse(fs.readFileSync("./menu.json", "utf-8"));
 const menu = menuData.map(item => item.name);
 
 const menuText = menuData
   .map((item, i) => `${i + 1}. ${item.name} - ₹${item.price}`)
   .join("\n");
 
+// 🔹 Safe normalize
 function normalize(text) {
+  if (!text) return "";
   return text.toLowerCase().trim();
 }
 
+// 🔹 OpenAI
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// 🔹 AI
 async function processAI(message, cart) {
   const cartText =
     cart.length > 0
@@ -48,44 +49,23 @@ ${menu.join(", ")}
 Cart:
 ${cartText}
 
-AVAILABLE ACTIONS:
-- add_to_cart
-- remove_from_cart
-- show_menu
-- view_cart
-
-IMPORTANT:
-- For multiple items, return "items" array
-- NEVER return multiple JSON objects
+RULES:
+- Always return ONE JSON object
+- Use "items" array for multiple items
 
 FORMAT:
-
-Single item:
 {
-  "action": "add_to_cart",
-  "item": "",
-  "quantity": 1
-}
-
-Multiple items:
-{
-  "action": "add_to_cart",
+  "action": "",
   "items": [
     {"item": "", "quantity": 1}
   ]
 }
 
-EXAMPLE:
-
-User: add 1 paneer and 2 mushroom
-Output:
-{
-  "action": "add_to_cart",
-  "items": [
-    {"item": "Paneer Tikka Biryani", "quantity": 1},
-    {"item": "Mushroom Biryani", "quantity": 2}
-  ]
-}
+Actions:
+- add_to_cart
+- remove_from_cart
+- show_menu
+- view_cart
 `
       },
       {
@@ -98,38 +78,48 @@ Output:
   return response.choices[0].message.content.trim();
 }
 
+// 🔹 SAFE JSON PARSER (CRITICAL FIX)
+function extractJSON(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const matches = text.match(/\{[\s\S]*?\}/g);
+    if (!matches) return null;
+
+    try {
+      return JSON.parse(matches[0]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+// 🔹 Webhook
 app.post("/webhook/whatsapp", async (req, res) => {
   const message = req.body.Body;
   const user = req.body.From;
 
-  if (!carts[user]) {
-    carts[user] = [];
-  }
+  if (!carts[user]) carts[user] = [];
 
   let reply = "Sorry, I didn’t understand.";
 
   try {
     const aiResponse = await processAI(message, carts[user]);
+    console.log("AI RAW:", aiResponse);
 
-    console.log("AI:", aiResponse);
+    const parsed = extractJSON(aiResponse);
 
-    let parsed;
-
-    try {
-      parsed = JSON.parse(aiResponse);
-    } catch {
-      const match = aiResponse.match(/\{.*\}/s);
-      if (match) parsed = JSON.parse(match[0]);
+    if (!parsed) {
+      reply = "Couldn’t understand properly, try again 🙏";
     }
 
-    // ➕ ADD MULTIPLE ITEMS
-    if (parsed?.action === "add_to_cart") {
-
-      const items = parsed.items || [
-        { item: parsed.item, quantity: parsed.quantity }
-      ];
+    // ➕ ADD
+    else if (parsed.action === "add_to_cart") {
+      const items = parsed.items || [];
 
       items.forEach(({ item, quantity }) => {
+        if (!item || !quantity) return;
+
         const existing = carts[user].find(
           i => normalize(i.name) === normalize(item)
         );
@@ -148,34 +138,37 @@ app.post("/webhook/whatsapp", async (req, res) => {
     }
 
     // ➖ REMOVE
-    else if (parsed?.action === "remove_from_cart") {
-      const existing = carts[user].find(
-        i => normalize(i.name) === normalize(parsed.item)
-      );
+    else if (parsed.action === "remove_from_cart") {
+      const items = parsed.items || [];
 
-      if (!existing) {
-        reply = "Item not in cart ❌";
-      } else {
-        existing.quantity -= parsed.quantity;
+      items.forEach(({ item, quantity }) => {
+        if (!item || !quantity) return;
+
+        const existing = carts[user].find(
+          i => normalize(i.name) === normalize(item)
+        );
+
+        if (!existing) return;
+
+        existing.quantity -= quantity;
 
         if (existing.quantity <= 0) {
           carts[user] = carts[user].filter(
-            i => normalize(i.name) !== normalize(parsed.item)
+            i => normalize(i.name) !== normalize(item)
           );
-          reply = `${parsed.item} removed ❌`;
-        } else {
-          reply = `Removed ${parsed.quantity} from ${parsed.item}`;
         }
-      }
+      });
+
+      reply = "Cart updated ❌";
     }
 
     // 📋 MENU
-    else if (parsed?.action === "show_menu") {
+    else if (parsed.action === "show_menu") {
       reply = `Here’s our menu 🍽️:\n\n${menuText}`;
     }
 
     // 🧺 CART
-    else if (parsed?.action === "view_cart") {
+    else if (parsed.action === "view_cart") {
       if (carts[user].length === 0) {
         reply = "Your cart is empty 🛒";
       } else {
@@ -203,12 +196,12 @@ app.post("/webhook/whatsapp", async (req, res) => {
   `);
 });
 
+// 🔹 Health
 app.get("/", (req, res) => {
   res.send("Server is running ✅");
 });
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
   console.log("Server running 🚀");
 });
