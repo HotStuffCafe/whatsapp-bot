@@ -10,13 +10,18 @@ const carts = {};
 
 // 🔹 Load menu
 const menuData = JSON.parse(fs.readFileSync("./menu.json", "utf-8"));
+
 const menu = menuData.map(item => item.name);
 
-const menuText = menuData
-  .map((item, i) => `${i + 1}. ${item.name} - ₹${item.price}`)
-  .join("\n");
+// 🔹 Helper: price lookup
+function getPrice(itemName) {
+  const item = menuData.find(
+    i => i.name.toLowerCase() === itemName.toLowerCase()
+  );
+  return item ? item.price : 0;
+}
 
-// 🔹 Safe normalize
+// 🔹 Normalize
 function normalize(text) {
   if (!text) return "";
   return text.toLowerCase().trim();
@@ -50,22 +55,19 @@ Cart:
 ${cartText}
 
 RULES:
-- Always return ONE JSON object
-- Use "items" array for multiple items
+- Use "items" array for multiple actions
+- Can mix add and remove in same message
 
 FORMAT:
 {
-  "action": "",
-  "items": [
-    {"item": "", "quantity": 1}
+  "actions": [
+    {
+      "type": "add_to_cart",
+      "item": "",
+      "quantity": 1
+    }
   ]
 }
-
-Actions:
-- add_to_cart
-- remove_from_cart
-- show_menu
-- view_cart
 `
       },
       {
@@ -78,20 +80,34 @@ Actions:
   return response.choices[0].message.content.trim();
 }
 
-// 🔹 SAFE JSON PARSER (CRITICAL FIX)
+// 🔹 Safe JSON
 function extractJSON(text) {
   try {
     return JSON.parse(text);
   } catch {
-    const matches = text.match(/\{[\s\S]*?\}/g);
-    if (!matches) return null;
-
-    try {
-      return JSON.parse(matches[0]);
-    } catch {
-      return null;
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch {}
     }
+    return null;
   }
+}
+
+// 🔹 Cart Display (UPGRADED)
+function buildCartText(cart) {
+  let total = 0;
+
+  const lines = cart.map(item => {
+    const price = getPrice(item.name);
+    const itemTotal = price * item.quantity;
+    total += itemTotal;
+
+    return `${item.name} x${item.quantity} = ₹${itemTotal}`;
+  });
+
+  return `🛒 *Your Cart:*\n\n${lines.join("\n")}\n\n*Total: ₹${total}*\n\n👉 Should I *confirm* your order?\nYou can also *add* or *remove* items.`;
 }
 
 // 🔹 Webhook
@@ -105,78 +121,71 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
   try {
     const aiResponse = await processAI(message, carts[user]);
-    console.log("AI RAW:", aiResponse);
+    console.log("AI:", aiResponse);
 
     const parsed = extractJSON(aiResponse);
 
     if (!parsed) {
-      reply = "Couldn’t understand properly, try again 🙏";
+      reply = "Couldn’t understand, try again 🙏";
     }
 
-    // ➕ ADD
-    else if (parsed.action === "add_to_cart") {
-      const items = parsed.items || [];
+    // 🔥 MULTI ACTION HANDLING
+    else if (parsed.actions) {
+      parsed.actions.forEach(action => {
+        const item = action.item;
+        const quantity = action.quantity;
 
-      items.forEach(({ item, quantity }) => {
         if (!item || !quantity) return;
 
-        const existing = carts[user].find(
-          i => normalize(i.name) === normalize(item)
-        );
-
-        if (existing) {
-          existing.quantity += quantity;
-        } else {
-          carts[user].push({
-            name: item,
-            quantity: quantity
-          });
-        }
-      });
-
-      reply = "Items added to cart 🛒";
-    }
-
-    // ➖ REMOVE
-    else if (parsed.action === "remove_from_cart") {
-      const items = parsed.items || [];
-
-      items.forEach(({ item, quantity }) => {
-        if (!item || !quantity) return;
-
-        const existing = carts[user].find(
-          i => normalize(i.name) === normalize(item)
-        );
-
-        if (!existing) return;
-
-        existing.quantity -= quantity;
-
-        if (existing.quantity <= 0) {
-          carts[user] = carts[user].filter(
-            i => normalize(i.name) !== normalize(item)
+        // ➕ ADD
+        if (action.type === "add_to_cart") {
+          const existing = carts[user].find(
+            i => normalize(i.name) === normalize(item)
           );
+
+          if (existing) {
+            existing.quantity += quantity;
+          } else {
+            carts[user].push({ name: item, quantity });
+          }
+        }
+
+        // ➖ REMOVE
+        if (action.type === "remove_from_cart") {
+          const existing = carts[user].find(
+            i => normalize(i.name) === normalize(item)
+          );
+
+          if (!existing) return;
+
+          existing.quantity -= quantity;
+
+          if (existing.quantity <= 0) {
+            carts[user] = carts[user].filter(
+              i => normalize(i.name) !== normalize(item)
+            );
+          }
         }
       });
 
-      reply = "Cart updated ❌";
+      reply = "Cart updated ✅";
     }
 
     // 📋 MENU
     else if (parsed.action === "show_menu") {
+      const menuText = menuData
+        .map((i, idx) => `${idx + 1}. ${i.name} - ₹${i.price}`)
+        .join("\n");
+
       reply = `Here’s our menu 🍽️:\n\n${menuText}`;
     }
 
-    // 🧺 CART
+    // 🧺 CART VIEW
     else if (parsed.action === "view_cart") {
       if (carts[user].length === 0) {
         reply = "Your cart is empty 🛒";
       } else {
-        const cartText = carts[user]
-          .map(i => `${i.name} x${i.quantity}`)
-          .join("\n");
-
-        reply = `🛒 Your Cart:\n\n${cartText}`;
+        reply = buildCartText(carts[user]);
       }
     }
 
