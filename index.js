@@ -10,10 +10,9 @@ const carts = {};
 
 // 🔹 Load menu
 const menuData = JSON.parse(fs.readFileSync("./menu.json", "utf-8"));
-
 const menu = menuData.map(item => item.name);
 
-// 🔹 Helper: price lookup
+// 🔹 Price lookup
 function getPrice(itemName) {
   const item = menuData.find(
     i => i.name.toLowerCase() === itemName.toLowerCase()
@@ -54,18 +53,20 @@ ${menu.join(", ")}
 Cart:
 ${cartText}
 
-RULES:
-- Use "items" array for multiple actions
-- Can mix add and remove in same message
+IMPORTANT:
+- Use "actions" array for multiple operations
+- Use "action" for single operations
 
-FORMAT:
+FORMATS:
+
+Single:
+{"action":"view_cart"}
+
+Multiple:
 {
-  "actions": [
-    {
-      "type": "add_to_cart",
-      "item": "",
-      "quantity": 1
-    }
+  "actions":[
+    {"type":"add_to_cart","item":"Paneer Tikka Biryani","quantity":2},
+    {"type":"remove_from_cart","item":"Veg Biryani","quantity":1}
   ]
 }
 `
@@ -80,7 +81,7 @@ FORMAT:
   return response.choices[0].message.content.trim();
 }
 
-// 🔹 Safe JSON
+// 🔹 Safe JSON parser
 function extractJSON(text) {
   try {
     return JSON.parse(text);
@@ -95,7 +96,7 @@ function extractJSON(text) {
   }
 }
 
-// 🔹 Cart Display (UPGRADED)
+// 🔹 Build cart text (UX improved)
 function buildCartText(cart) {
   let total = 0;
 
@@ -129,7 +130,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
       reply = "Couldn’t understand, try again 🙏";
     }
 
-    // 🔥 MULTI ACTION HANDLING
+    // 🔥 MULTI ACTION
     else if (parsed.actions) {
       parsed.actions.forEach(action => {
         const item = action.item;
@@ -171,22 +172,21 @@ app.post("/webhook/whatsapp", async (req, res) => {
       reply = "Cart updated ✅";
     }
 
-    // 📋 MENU
-    else if (parsed.action === "show_menu") {
-      const menuText = menuData
-        .map((i, idx) => `${idx + 1}. ${i.name} - ₹${i.price}`)
-        .join("\n");
-
-      reply = `Here’s our menu 🍽️:\n\n${menuText}`;
-    }
-
-    // 🧺 CART VIEW
+    // 🔥 SINGLE ACTIONS
     else if (parsed.action === "view_cart") {
       if (carts[user].length === 0) {
         reply = "Your cart is empty 🛒";
       } else {
         reply = buildCartText(carts[user]);
       }
+    }
+
+    else if (parsed.action === "show_menu") {
+      const menuText = menuData
+        .map((i, idx) => `${idx + 1}. ${i.name} - ₹${i.price}`)
+        .join("\n");
+
+      reply = `Here’s our menu 🍽️:\n\n${menuText}`;
     }
 
     else {
