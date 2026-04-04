@@ -1,0 +1,17 @@
+[
+  {
+    "id": 1,
+    "name": "Paneer Tikka Biryani",
+    "price": 220
+  },
+  {
+    "id": 2,
+    "name": "Veg Biryani",
+    "price": 180
+  },
+  {
+    "id": 3,
+    "name": "Mushroom Biryani",
+    "price": 200
+  }
+]
