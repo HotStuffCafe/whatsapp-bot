@@ -7,7 +7,7 @@ const app = express();
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// 🔹 In-memory cart (per user)
+// 🔹 In-memory cart
 const carts = {};
 
 // 🔹 Load menu
@@ -26,7 +26,7 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🔹 AI function
+// 🔹 AI
 async function processAI(message, cart) {
   const cartText =
     cart.length > 0
@@ -50,6 +50,7 @@ ${cartText}
 
 AVAILABLE ACTIONS:
 - add_to_cart
+- remove_from_cart
 - show_menu
 - view_cart
 - clarify
@@ -58,7 +59,8 @@ RULES:
 - hi/hello → show_menu
 - "menu" → show_menu
 - "cart" → view_cart
-- "add more" → add_to_cart (use last item from cart)
+- "add more" → add_to_cart (use last item)
+- "remove", "delete" → remove_from_cart
 - If unclear → clarify
 
 FORMAT:
@@ -70,21 +72,17 @@ FORMAT:
 
 EXAMPLES:
 
-User: hi
+User: remove 1 paneer biryani
 Output:
-{"action":"show_menu","item":"","quantity":0}
+{"action":"remove_from_cart","item":"Paneer Tikka Biryani","quantity":1}
 
-User: show cart
+User: remove all paneer biryani
 Output:
-{"action":"view_cart","item":"","quantity":0}
+{"action":"remove_from_cart","item":"Paneer Tikka Biryani","quantity":999}
 
-User: 2 paneer biryani
+User: remove last item
 Output:
-{"action":"add_to_cart","item":"Paneer Tikka Biryani","quantity":2}
-
-User: add 1 more
-Output:
-{"action":"add_to_cart","item":"Paneer Tikka Biryani","quantity":1}
+{"action":"remove_from_cart","item":"Paneer Tikka Biryani","quantity":1}
 `
       },
       {
@@ -102,9 +100,6 @@ app.post("/webhook/whatsapp", async (req, res) => {
   const message = req.body.Body;
   const user = req.body.From;
 
-  console.log("USER:", user);
-  console.log("MESSAGE:", message);
-
   if (!carts[user]) {
     carts[user] = [];
   }
@@ -114,18 +109,18 @@ app.post("/webhook/whatsapp", async (req, res) => {
   try {
     const aiResponse = await processAI(message, carts[user]);
 
-    console.log("AI RAW:", aiResponse);
+    console.log("AI:", aiResponse);
 
     let parsed;
 
     try {
       parsed = JSON.parse(aiResponse);
-    } catch (e) {
+    } catch {
       const match = aiResponse.match(/\{.*\}/s);
       if (match) parsed = JSON.parse(match[0]);
     }
 
-    // 🛒 ADD TO CART
+    // ➕ ADD TO CART
     if (parsed?.action === "add_to_cart") {
       const existing = carts[user].find(
         i => i.name === parsed.item
@@ -141,6 +136,28 @@ app.post("/webhook/whatsapp", async (req, res) => {
       }
 
       reply = `Added ${parsed.quantity} x ${parsed.item} 🛒`;
+    }
+
+    // ➖ REMOVE FROM CART
+    else if (parsed?.action === "remove_from_cart") {
+      const existing = carts[user].find(
+        i => i.name === parsed.item
+      );
+
+      if (!existing) {
+        reply = "Item not in cart ❌";
+      } else {
+        existing.quantity -= parsed.quantity;
+
+        if (existing.quantity <= 0) {
+          carts[user] = carts[user].filter(
+            i => i.name !== parsed.item
+          );
+          reply = `${parsed.item} removed from cart ❌`;
+        } else {
+          reply = `Removed ${parsed.quantity} from ${parsed.item}`;
+        }
+      }
     }
 
     // 📋 SHOW MENU
