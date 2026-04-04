@@ -7,7 +7,6 @@ const app = express();
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// 🔹 In-memory cart
 const carts = {};
 
 // 🔹 Load menu
@@ -20,6 +19,11 @@ const menu = menuData.map(item => item.name);
 const menuText = menuData
   .map((item, i) => `${i + 1}. ${item.name} - ₹${item.price}`)
   .join("\n");
+
+// 🔹 Normalize function (IMPORTANT)
+function normalize(text) {
+  return text.toLowerCase().trim();
+}
 
 // 🔹 OpenAI
 const client = new OpenAI({
@@ -59,9 +63,9 @@ RULES:
 - hi/hello → show_menu
 - "menu" → show_menu
 - "cart" → view_cart
-- "add more" → add_to_cart (use last item)
-- "remove", "delete" → remove_from_cart
-- If unclear → clarify
+- "add more" → add_to_cart
+- "remove/delete" → remove_from_cart
+- Match item names from menu strictly
 
 FORMAT:
 {
@@ -73,14 +77,6 @@ FORMAT:
 EXAMPLES:
 
 User: remove 1 paneer biryani
-Output:
-{"action":"remove_from_cart","item":"Paneer Tikka Biryani","quantity":1}
-
-User: remove all paneer biryani
-Output:
-{"action":"remove_from_cart","item":"Paneer Tikka Biryani","quantity":999}
-
-User: remove last item
 Output:
 {"action":"remove_from_cart","item":"Paneer Tikka Biryani","quantity":1}
 `
@@ -120,10 +116,10 @@ app.post("/webhook/whatsapp", async (req, res) => {
       if (match) parsed = JSON.parse(match[0]);
     }
 
-    // ➕ ADD TO CART
+    // ➕ ADD
     if (parsed?.action === "add_to_cart") {
       const existing = carts[user].find(
-        i => i.name === parsed.item
+        i => normalize(i.name) === normalize(parsed.item)
       );
 
       if (existing) {
@@ -138,10 +134,10 @@ app.post("/webhook/whatsapp", async (req, res) => {
       reply = `Added ${parsed.quantity} x ${parsed.item} 🛒`;
     }
 
-    // ➖ REMOVE FROM CART
+    // ➖ REMOVE (FIXED HERE)
     else if (parsed?.action === "remove_from_cart") {
       const existing = carts[user].find(
-        i => i.name === parsed.item
+        i => normalize(i.name) === normalize(parsed.item)
       );
 
       if (!existing) {
@@ -151,21 +147,21 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
         if (existing.quantity <= 0) {
           carts[user] = carts[user].filter(
-            i => i.name !== parsed.item
+            i => normalize(i.name) !== normalize(parsed.item)
           );
-          reply = `${parsed.item} removed from cart ❌`;
+          reply = `${parsed.item} removed ❌`;
         } else {
           reply = `Removed ${parsed.quantity} from ${parsed.item}`;
         }
       }
     }
 
-    // 📋 SHOW MENU
+    // 📋 MENU
     else if (parsed?.action === "show_menu") {
       reply = `Here’s our menu 🍽️:\n\n${menuText}`;
     }
 
-    // 🧺 VIEW CART
+    // 🧺 CART
     else if (parsed?.action === "view_cart") {
       if (carts[user].length === 0) {
         reply = "Your cart is empty 🛒";
@@ -184,7 +180,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
   } catch (err) {
     console.log("ERROR:", err.message);
-    reply = "System busy, please try again 🙏";
+    reply = "System busy, try again 🙏";
   }
 
   res.send(`
@@ -194,12 +190,12 @@ app.post("/webhook/whatsapp", async (req, res) => {
   `);
 });
 
-// 🔹 Health check
+// 🔹 Health
 app.get("/", (req, res) => {
   res.send("Server is running ✅");
 });
 
-// 🔹 Start server
+// 🔹 Start
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
