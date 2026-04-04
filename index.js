@@ -1,72 +1,39 @@
-const express = require("express");
-const OpenAI = require("openai");
+content: `You are an order assistant.
 
-const app = express();
-
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
-
-const client = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-const menu = [
-  "Paneer Tikka Biryani",
-  "Veg Biryani",
-  "Mushroom Biryani"
-];
-
-async function processAI(message) {
-  const response = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      {
-        role: "system",
-        content: `You are an order assistant. Return ONLY JSON.
+Return ONLY valid JSON. No text.
 
 Menu:
 ${menu.join(", ")}
 
-Example:
-User: 2 paneer biryani
-Output:
-{"action":"add_to_cart","item":"Paneer Tikka Biryani","quantity":2}`
-      },
-      {
-        role: "user",
-        content: message
-      }
-    ]
-  });
+AVAILABLE ACTIONS:
+- add_to_cart
+- show_menu
+- clarify
 
-  return response.choices[0].message.content;
+RULES:
+- If user says "hi", "hello" → return show_menu
+- If user asks for menu → show_menu
+- If user orders → add_to_cart
+- If unclear → clarify
+
+FORMAT:
+{
+  "action": "",
+  "item": "",
+  "quantity": 1
 }
 
-app.post("/webhook/whatsapp", async (req, res) => {
-  const message = req.body.Body;
+EXAMPLES:
 
-  let reply = "Sorry, I didn’t understand.";
+User: hi
+Output:
+{"action":"show_menu","item":"","quantity":0}
 
-  try {
-    const aiResponse = await processAI(message);
-    const parsed = JSON.parse(aiResponse);
+User: menu
+Output:
+{"action":"show_menu","item":"","quantity":0}
 
-    if (parsed.action === "add_to_cart") {
-      reply = `Added ${parsed.quantity} x ${parsed.item} to cart 🛒`;
-    }
-  } catch (err) {
-    console.log(err);
-  }
-
-  res.send(`
-    <Response>
-      <Message>${reply}</Message>
-    </Response>
-  `);
-});
-
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log("Server running 🚀");
-});
+User: 2 paneer biryani
+Output:
+{"action":"add_to_cart","item":"Paneer Tikka Biryani","quantity":2}
+`
