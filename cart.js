@@ -30,7 +30,7 @@ function removeFromCart(cart, item, quantity) {
     i => normalize(i.name) === normalize(item)
   );
 
-  if (!existing) return;
+  if (!existing) return cart;
 
   existing.quantity -= quantity;
 
@@ -52,10 +52,7 @@ function buildCartText(cart) {
     return `${item.name} x${item.quantity} = ₹${itemTotal}`;
   });
 
-  return {
-    text: `🛒 *Your Cart:*\n\n${lines.join("\n")}\n\n*Total: ₹${total}*`,
-    total
-  };
+  return `🛒 *Your Cart:*\n\n${lines.join("\n")}\n\n*Total: ₹${total}*\n\n👉 Should I *confirm* your order?\nYou can also *add* or *remove* items.`;
 }
 
 module.exports = {
