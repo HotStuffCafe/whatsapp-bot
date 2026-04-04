@@ -41,16 +41,36 @@ ${menu.join(", ")}
 Cart:
 ${cartText}
 
-FORMAT:
-{
-  "actions":[
-    {"type":"add_to_cart","item":"","quantity":1}
-  ]
-}
+ACTIONS:
+- add_to_cart
+- remove_from_cart
+- view_cart
+- show_menu
+
+RULES:
+- hi/hello → show_menu
+- menu/show menu → show_menu
+- cart → view_cart
+- support multiple actions
+
+FORMATS:
+
+Single:
+{"action":"show_menu"}
 
 OR
 
 {"action":"view_cart"}
+
+OR
+
+Multiple:
+{
+  "actions":[
+    {"type":"add_to_cart","item":"Paneer Tikka Biryani","quantity":2},
+    {"type":"remove_from_cart","item":"Veg Biryani","quantity":1}
+  ]
+}
 `
       },
       {
@@ -63,12 +83,17 @@ OR
   return response.choices[0].message.content.trim();
 }
 
+// 🔹 Safe JSON
 function extractJSON(text) {
   try {
     return JSON.parse(text);
   } catch {
     const match = text.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch {}
+    }
     return null;
   }
 }
@@ -80,7 +105,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
   if (!carts[user]) carts[user] = [];
 
-  // 🔥 CHECKOUT MODULE FIRST
+  // 🔥 CHECKOUT MODULE
   const checkoutResponse = handleCheckout(message, carts[user]);
 
   if (checkoutResponse) {
@@ -99,13 +124,15 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
   try {
     const aiResponse = await processAI(message, carts[user]);
+    console.log("AI:", aiResponse);
+
     const parsed = extractJSON(aiResponse);
 
     if (!parsed) {
       reply = "Try again 🙏";
     }
 
-    // MULTI ACTION
+    // 🔥 MULTI ACTION
     else if (parsed.actions) {
       parsed.actions.forEach(a => {
         if (a.type === "add_to_cart") {
@@ -117,24 +144,28 @@ app.post("/webhook/whatsapp", async (req, res) => {
             carts[user],
             a.item,
             a.quantity
-          ) || carts[user];
+          );
         }
       });
 
       reply = "Cart updated ✅";
     }
 
-    // VIEW CART
+    // 🔥 SINGLE ACTIONS
     else if (parsed.action === "view_cart") {
       if (carts[user].length === 0) {
         reply = "Your cart is empty 🛒";
       } else {
-        const cart = buildCartText(carts[user]);
-
-        reply =
-          cart.text +
-          "\n\n👉 Should I *confirm* your order?\nYou can also *add* or *remove* items.";
+        reply = buildCartText(carts[user]);
       }
+    }
+
+    else if (parsed.action === "show_menu") {
+      const menuText = menuData
+        .map((i, idx) => `${idx + 1}. ${i.name} - ₹${i.price}`)
+        .join("\n");
+
+      reply = `Here’s our menu 🍽️:\n\n${menuText}`;
     }
 
     else {
@@ -142,7 +173,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
     }
 
   } catch (err) {
-    console.log(err);
+    console.log("ERROR:", err.message);
     reply = "System busy 🙏";
   }
 
@@ -151,6 +182,10 @@ app.post("/webhook/whatsapp", async (req, res) => {
       <Message>${reply}</Message>
     </Response>
   `);
+});
+
+app.get("/", (req, res) => {
+  res.send("Server is running ✅");
 });
 
 app.listen(process.env.PORT || 3000);
