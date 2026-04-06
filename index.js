@@ -5,6 +5,7 @@ const OpenAI = require("openai");
 // Modules
 const cart = require("./cart");
 const checkout = require("./checkout");
+const orderParser = require("./orderParser");
 
 const app = express();
 app.use(express.urlencoded({ extended: true }));
@@ -21,7 +22,7 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🔹 AI FUNCTION
+// 🔹 AI FUNCTION (fallback only)
 async function processAI(message, cartItems) {
   const cartText =
     cartItems.length > 0
@@ -38,14 +39,7 @@ async function processAI(message, cartItems) {
 Menu: ${menu.join(", ")}
 Cart: ${cartText}
 
-Actions:
-- add_to_cart
-- remove_from_cart
-- view_cart
-- show_menu
-
 Examples:
-{"action":"show_menu"}
 {"action":"view_cart"}
 {
  "actions":[
@@ -63,24 +57,16 @@ Examples:
   return response.choices[0].message.content.trim();
 }
 
-// 🔹 SAFE JSON PARSER
+// 🔹 SAFE JSON
 function extractJSON(text) {
   try {
     return JSON.parse(text);
   } catch {
-    try {
-      const cleaned = text
-        .replace(/```json/g, "")
-        .replace(/```/g, "")
-        .trim();
-      return JSON.parse(cleaned);
-    } catch {
-      const match = text.match(/\{[\s\S]*\}/);
-      if (match) {
-        try {
-          return JSON.parse(match[0]);
-        } catch {}
-      }
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch {}
     }
   }
   return null;
@@ -95,13 +81,8 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
   const msg = message.toLowerCase().trim();
 
-  // ✅ GREETING HANDLER (NO AI)
-  if (
-    msg === "hi" ||
-    msg === "hello" ||
-    msg === "hey" ||
-    msg === "hii"
-  ) {
+  // ✅ GREETING
+  if (["hi", "hello", "hey", "hii"].includes(msg)) {
     const menuText = menuData
       .map((i, idx) => `${idx + 1}. ${i.name} - ₹${i.price}`)
       .join("\n");
@@ -113,7 +94,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
     `);
   }
 
-  // ✅ CHECKOUT FLOW
+  // ✅ CHECKOUT
   const checkoutResponse = checkout.handleCheckout(
     message,
     user,
@@ -130,54 +111,54 @@ app.post("/webhook/whatsapp", async (req, res) => {
     `);
   }
 
+  // ✅ RULE-BASED ORDER PARSER (PRIMARY ENGINE)
+  const parsedOrder = orderParser.parseOrder(message);
+
+  if (parsedOrder) {
+    parsedOrder.forEach(a => {
+      if (a.type === "add_to_cart") {
+        cart.addToCart(carts[user], a.item, a.quantity);
+      }
+
+      if (a.type === "remove_from_cart") {
+        carts[user] = cart.removeFromCart(
+          carts[user],
+          a.item,
+          a.quantity
+        );
+      }
+    });
+
+    return res.send(`
+      <Response>
+        <Message>Cart updated ✅</Message>
+      </Response>
+    `);
+  }
+
   let reply =
-    "I didn’t understand that 🤔\nTry:\n- menu\n- cart\n- add 2 paneer biryani";
+    "I didn’t understand 🤔\nTry:\n- menu\n- cart\n- add 2 paneer biryani";
 
   try {
+    // 🔹 AI FALLBACK
     const aiResponse = await processAI(message, carts[user]);
-    console.log("AI:", aiResponse);
-
     const parsed = extractJSON(aiResponse);
 
-    if (!parsed) {
-      reply = "Try again 🙏";
-    }
-
-    // 🔥 MULTI ACTION
-    else if (parsed.actions) {
-      parsed.actions.forEach(a => {
-        if (a.type === "add_to_cart") {
-          cart.addToCart(carts[user], a.item, a.quantity);
-        }
-
-        if (a.type === "remove_from_cart") {
-          carts[user] = cart.removeFromCart(
-            carts[user],
-            a.item,
-            a.quantity
-          );
-        }
-      });
-
-      reply = "Cart updated ✅";
-    }
-
-    // 🔥 VIEW CART
-    else if (parsed.action === "view_cart") {
+    if (parsed?.action === "view_cart") {
       reply =
         carts[user].length === 0
           ? "Your cart is empty 🛒"
           : cart.buildCartText(carts[user]);
     }
 
-    // 🔥 SHOW MENU
-    else if (parsed.action === "show_menu") {
+    else if (parsed?.action === "show_menu") {
       const menuText = menuData
         .map((i, idx) => `${idx + 1}. ${i.name} - ₹${i.price}`)
         .join("\n");
 
       reply = `Here’s our menu 🍽️:\n\n${menuText}`;
     }
+
   } catch (err) {
     console.log("ERROR:", err.message);
     reply = "System busy 🙏";
@@ -190,7 +171,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
   `);
 });
 
-// ✅ SINGLE SERVER START
+// SERVER
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
