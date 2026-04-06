@@ -4,7 +4,7 @@ const menuData = JSON.parse(fs.readFileSync("./menu.json", "utf-8"));
 
 const sessions = {};
 
-// 🔥 Get price from menu
+// 🔥 Price lookup
 function getPrice(itemName) {
   const item = menuData.find(
     i => i.name.toLowerCase() === itemName.toLowerCase()
@@ -17,14 +17,14 @@ function generateOrderId() {
   return "ORD" + Date.now().toString().slice(-6);
 }
 
-// 🔥 Payment Link
+// 🔥 Payment link
 function generatePaymentLink(amount) {
   const upiId = "adi.singh@icici";
   return `upi://pay?pa=${upiId}&pn=HotStuffCafe&am=${amount}&cu=INR`;
 }
 
 function handleCheckout(message, user, cart) {
-  const msg = message.toLowerCase();
+  const msg = message.toLowerCase().trim();
 
   if (!sessions[user]) {
     sessions[user] = { step: "idle" };
@@ -32,17 +32,18 @@ function handleCheckout(message, user, cart) {
 
   const session = sessions[user];
 
-  // ✅ STEP 1: CONFIRM
-  if (msg === "confirm" && session.step === "idle") {
+  // ✅ START
+  if (msg === "confirm") {
     if (cart.length === 0) {
       return { reply: "Your cart is empty 🛒" };
     }
 
     session.step = "ask_name";
+
     return { reply: "🙏 Please share your *name*" };
   }
 
-  // ✅ STEP 2: NAME
+  // ✅ NAME
   if (session.step === "ask_name") {
     session.name = message;
     session.step = "ask_address";
@@ -52,8 +53,8 @@ function handleCheckout(message, user, cart) {
     };
   }
 
-  // ✅ STEP 3: ADDRESS → FINAL
-  if (session.step === "ask_address") {
+  // ✅ ADDRESS (FINAL STEP — NO DEPENDENCY ON STATE FAIL)
+  if (session.step === "ask_address" || session.name) {
     try {
       session.address = message;
 
@@ -70,7 +71,7 @@ function handleCheckout(message, user, cart) {
       const orderId = generateOrderId();
       const paymentLink = generatePaymentLink(total);
 
-      console.log("🔥 NEW ORDER");
+      console.log("🔥 ORDER RECEIVED");
       console.log(orderId, session.name, session.address, items, total);
 
       sessions[user] = { step: "idle" };
@@ -83,7 +84,7 @@ function handleCheckout(message, user, cart) {
       console.log("CHECKOUT ERROR:", err.message);
 
       return {
-        reply: "Something went wrong 😔 Please try again",
+        reply: "Something went wrong 😔 Please type *confirm* again",
       };
     }
   }
