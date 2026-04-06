@@ -1,13 +1,13 @@
 const sessions = {};
 
-// 🔥 Generate Order ID
+// 🔥 Order ID
 function generateOrderId() {
   return "ORD" + Date.now().toString().slice(-6);
 }
 
-// 🔥 Generate UPI Payment Link
+// 🔥 Payment Link
 function generatePaymentLink(amount) {
-  const upiId = "adi.singh@icici"; // ✅ YOUR UPI ID
+  const upiId = "adi.singh@icici";
   return `upi://pay?pa=${upiId}&pn=HotStuffCafe&am=${amount}&cu=INR`;
 }
 
@@ -20,8 +20,8 @@ function handleCheckout(message, user, cart) {
 
   const session = sessions[user];
 
-  // STEP 1: START CHECKOUT
-  if (msg.includes("confirm") && session.step === "idle") {
+  // ✅ STEP 1: START CHECKOUT
+  if (msg === "confirm" && session.step === "idle") {
     if (cart.length === 0) {
       return { reply: "Your cart is empty 🛒" };
     }
@@ -31,7 +31,7 @@ function handleCheckout(message, user, cart) {
     return { reply: "🙏 Please share your *name*" };
   }
 
-  // STEP 2: NAME
+  // ✅ STEP 2: NAME
   if (session.step === "ask_name") {
     session.name = message;
     session.step = "ask_address";
@@ -41,7 +41,7 @@ function handleCheckout(message, user, cart) {
     };
   }
 
-  // STEP 3: ADDRESS + FINAL ORDER
+  // ✅ STEP 3: ADDRESS → FINAL ORDER
   if (session.step === "ask_address") {
     session.address = message;
 
@@ -56,19 +56,14 @@ function handleCheckout(message, user, cart) {
     const orderId = generateOrderId();
     const paymentLink = generatePaymentLink(total);
 
-    // 🔥 ADMIN ALERT (Render Logs)
-    console.log("🔥 NEW ORDER RECEIVED");
-    console.log("Order ID:", orderId);
-    console.log("Customer:", session.name);
-    console.log("Address:", session.address);
-    console.log("Items:", items);
-    console.log("Total:", total);
+    console.log("🔥 NEW ORDER");
+    console.log(orderId, session.name, session.address, items, total);
 
     // RESET SESSION
     sessions[user] = { step: "idle" };
 
     return {
-      reply: `🎉 *Order Confirmed!*\n\n🆔 Order ID: ${orderId}\n\n👤 ${session.name}\n📍 ${session.address}\n\n🛒 ${items.join("\n")}\n\n💰 Amount: ₹${total}\n\n💳 Pay here:\n${paymentLink}\n\n🚀 Once payment is done, we’ll start preparing your order!`,
+      reply: `🎉 *Order Confirmed!*\n\n🆔 Order ID: ${orderId}\n\n👤 ${session.name}\n📍 ${session.address}\n\n🛒 ${items.join("\n")}\n\n💰 Amount: ₹${total}\n\n💳 Pay here:\n${paymentLink}`,
       clearCart: true,
     };
   }
