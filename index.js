@@ -22,14 +22,9 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// 🔹 AI FUNCTION (SAFE FALLBACK)
+// 🔹 AI fallback
 async function processAI(message, cartItems) {
   try {
-    const cartText =
-      cartItems.length > 0
-        ? cartItems.map(i => `${i.name} x${i.quantity}`).join(", ")
-        : "empty";
-
     const response = await client.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -38,12 +33,10 @@ async function processAI(message, cartItems) {
           content: `Return ONLY JSON.
 
 Menu: ${menu.join(", ")}
-Cart: ${cartText}
 
 Examples:
 {"action":"view_cart"}
-{"action":"show_menu"}
-`,
+{"action":"show_menu"}`,
         },
         {
           role: "user",
@@ -59,17 +52,19 @@ Examples:
   }
 }
 
-// 🔹 SAFE JSON PARSER
+// 🔹 Safe JSON
 function extractJSON(text) {
   if (!text) return null;
 
   try {
     return JSON.parse(text);
   } catch {
-    try {
-      const match = text.match(/\{[\s\S]*\}/);
-      if (match) return JSON.parse(match[0]);
-    } catch {}
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch {}
+    }
   }
 
   return null;
@@ -84,7 +79,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
   const msg = message.toLowerCase().trim();
 
-  // ✅ GREETING HANDLER
+  // ✅ GREETING
   if (["hi", "hello", "hey", "hii"].includes(msg)) {
     const menuText = menuData
       .map((i, idx) => `${idx + 1}. ${i.name} - ₹${i.price}`)
@@ -97,26 +92,30 @@ app.post("/webhook/whatsapp", async (req, res) => {
     `);
   }
 
-  // ✅ CHECKOUT FLOW
-  const checkoutResponse = checkout.handleCheckout(
-    message,
-    user,
-    carts[user]
-  );
+  // 🔥 CHECKOUT LOCK (TOP PRIORITY)
+  try {
+    const checkoutResponse = checkout.handleCheckout(
+      message,
+      user,
+      carts[user]
+    );
 
-  if (checkoutResponse) {
-    if (checkoutResponse.clearCart) {
-      carts[user] = [];
+    if (checkoutResponse) {
+      if (checkoutResponse.clearCart) {
+        carts[user] = [];
+      }
+
+      return res.send(`
+        <Response>
+          <Message>${checkoutResponse.reply}</Message>
+        </Response>
+      `);
     }
-
-    return res.send(`
-      <Response>
-        <Message>${checkoutResponse.reply}</Message>
-      </Response>
-    `);
+  } catch (err) {
+    console.log("CHECKOUT ERROR:", err.message);
   }
 
-  // ✅ ORDER PARSER (PRIMARY ENGINE)
+  // ✅ ORDER PARSER
   try {
     const parsed = orderParser.parseOrder(message);
 
@@ -145,11 +144,11 @@ app.post("/webhook/whatsapp", async (req, res) => {
     console.log("PARSER ERROR:", err.message);
   }
 
-  // 🔹 DEFAULT RESPONSE
+  // 🔹 DEFAULT
   let reply =
     "I didn’t understand 🤔\nTry:\n- menu\n- cart\n- add 2 paneer biryani";
 
-  // 🔹 AI FALLBACK (SAFE)
+  // 🔹 AI fallback
   try {
     const aiResponse = await processAI(message, carts[user]);
     const parsedAI = extractJSON(aiResponse);
@@ -169,7 +168,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
       reply = `Here’s our menu 🍽️:\n\n${menuText}`;
     }
   } catch (err) {
-    console.log("AI FALLBACK ERROR:", err.message);
+    console.log("AI ERROR:", err.message);
   }
 
   res.send(`
@@ -179,7 +178,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
   `);
 });
 
-// ✅ SINGLE SERVER START (IMPORTANT)
+// SERVER
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
