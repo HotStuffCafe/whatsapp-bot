@@ -6,26 +6,35 @@ function normalize(text) {
   return text.toLowerCase();
 }
 
-// 🔥 Match item from menu
+// Match item from menu (supports partial match like "paneer")
 function findItem(text) {
   const lower = normalize(text);
 
   for (let item of menuData) {
-    if (lower.includes(item.name.toLowerCase())) {
-      return item.name;
+    const name = item.name.toLowerCase();
+
+    // full match OR partial match
+    if (lower.includes(name)) return item.name;
+
+    // partial keyword match (paneer, veg, mushroom)
+    const words = name.split(" ");
+    for (let w of words) {
+      if (w.length > 3 && lower.includes(w)) {
+        return item.name;
+      }
     }
   }
 
   return null;
 }
 
-// 🔥 Extract quantity
+// Extract quantity (default = 1)
 function extractQuantity(text) {
   const match = text.match(/\d+/);
   return match ? parseInt(match[0]) : 1;
 }
 
-// 🔥 MAIN PARSER
+// MAIN PARSER
 function parseOrder(message) {
   const msg = normalize(message);
 
