@@ -2,9 +2,7 @@ const fs = require("fs");
 
 const menuData = JSON.parse(fs.readFileSync("./menu.json", "utf-8"));
 
-const sessions = {};
-
-// Price lookup
+// 🔹 Price lookup
 function getPrice(itemName) {
   const item = menuData.find(
     i => i.name.toLowerCase() === itemName.toLowerCase()
@@ -12,83 +10,87 @@ function getPrice(itemName) {
   return item ? item.price : 0;
 }
 
-// Order ID
+// 🔹 Order ID
 function generateOrderId() {
   return "ORD" + Date.now().toString().slice(-6);
 }
 
-// Payment link
+// 🔹 Payment link
 function generatePaymentLink(amount) {
   const upiId = "adi.singh@icici";
   return `upi://pay?pa=${upiId}&pn=HotStuffCafe&am=${amount}&cu=INR`;
 }
 
-function handleCheckout(message, user, cart) {
+function handleCheckout(message, userCart) {
   if (!message) return null;
 
   const msg = message.toLowerCase().trim();
 
-  if (!sessions[user]) {
-    sessions[user] = { step: "idle" };
+  // 🔥 Attach state to cart
+  if (!userCart._meta) {
+    userCart._meta = { step: "idle" };
   }
 
-  const session = sessions[user];
+  const meta = userCart._meta;
 
-  // START
-  if (msg === "confirm" && session.step === "idle") {
-    if (cart.length === 0) {
+  // ✅ START
+  if (msg === "confirm" && meta.step === "idle") {
+    if (userCart.length === 0) {
       return { reply: "Your cart is empty 🛒" };
     }
 
-    session.step = "ask_name";
+    meta.step = "ask_name";
     return { reply: "🙏 Please share your *name*" };
   }
 
-  // NAME
-  if (session.step === "ask_name") {
-    session.name = message;
-    session.step = "ask_address";
+  // ✅ NAME
+  if (meta.step === "ask_name") {
+    meta.name = message;
+    meta.step = "ask_address";
 
     return {
-      reply: `Thanks ${session.name} 😊\n\n📍 Please share your *delivery address*`,
+      reply: `Thanks ${meta.name} 😊\n\n📍 Please share your *delivery address*`,
     };
   }
 
-  // ADDRESS (FINAL STEP)
-  if (session.step === "ask_address") {
-    session.address = message;
+  // ✅ ADDRESS (THIS IS NOW BULLETPROOF)
+  if (meta.step === "ask_address") {
+    meta.address = message;
 
     let total = 0;
 
-    const items = cart.map(item => {
-      const price = getPrice(item.name);
-      const itemTotal = price * item.quantity;
-      total += itemTotal;
+    const items = userCart
+      .filter(item => item.name) // ignore _meta
+      .map(item => {
+        const price = getPrice(item.name);
+        const itemTotal = price * item.quantity;
+        total += itemTotal;
 
-      return `${item.name} x${item.quantity}`;
-    });
+        return `${item.name} x${item.quantity}`;
+      });
 
     const orderId = generateOrderId();
     const paymentLink = generatePaymentLink(total);
 
     console.log("🔥 ORDER:", {
       orderId,
-      name: session.name,
-      address: session.address,
+      name: meta.name,
+      address: meta.address,
       items,
       total,
     });
 
-    sessions[user] = { step: "idle" };
+    // 🔥 RESET STATE
+    userCart._meta = { step: "idle" };
 
     return {
-      reply: `🎉 *Order Confirmed!*\n\n🆔 ${orderId}\n\n👤 ${session.name}\n📍 ${session.address}\n\n🛒 ${items.join("\n")}\n\n💰 Total: ₹${total}\n\n💳 Pay here:\n${paymentLink}`,
+      reply: `🎉 *Order Confirmed!*\n\n🆔 ${orderId}\n\n👤 ${meta.name}\n📍 ${meta.address}\n\n🛒 ${items.join("\n")}\n\n💰 Total: ₹${total}\n\n💳 Pay here:\n${paymentLink}`,
       clearCart: true,
     };
   }
 
-  // LOCK USER IN CHECKOUT
-  if (session.step !== "idle") {
+  // 🔒 LOCK FLOW
+  if (meta.step !== "idle") {
     return {
       reply: "Please complete checkout 🙏",
     };
