@@ -81,27 +81,22 @@ app.post("/webhook/whatsapp", async (req, res) => {
     `);
   }
 
-  // 🔥 CHECKOUT FIRST (LOCKED FLOW)
-  try {
-    const checkoutResponse = checkout.handleCheckout(
-      message,
-      user,
-      carts[user]
-    );
+  // 🔥 CHECKOUT (TOP PRIORITY — NO INTERFERENCE)
+  const checkoutResponse = checkout.handleCheckout(
+    message,
+    carts[user]
+  );
 
-    if (checkoutResponse) {
-      if (checkoutResponse.clearCart) {
-        carts[user] = [];
-      }
-
-      return res.send(`
-        <Response>
-          <Message>${checkoutResponse.reply}</Message>
-        </Response>
-      `);
+  if (checkoutResponse) {
+    if (checkoutResponse.clearCart) {
+      carts[user] = [];
     }
-  } catch (err) {
-    console.log("CHECKOUT ERROR:", err.message);
+
+    return res.send(`
+      <Response>
+        <Message>${checkoutResponse.reply}</Message>
+      </Response>
+    `);
   }
 
   // ✅ ORDER PARSER
@@ -133,7 +128,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
     console.log("PARSER ERROR:", err.message);
   }
 
-  // DEFAULT RESPONSE
+  // DEFAULT
   let reply =
     "I didn’t understand 🤔\nTry:\n- menu\n- cart\n- add 2 paneer biryani";
 
@@ -169,6 +164,7 @@ app.post("/webhook/whatsapp", async (req, res) => {
 
 // SERVER
 const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
   console.log("Server running on port", PORT);
 });
