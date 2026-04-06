@@ -17,7 +17,7 @@ function generateOrderId() {
   return "ORD" + Date.now().toString().slice(-6);
 }
 
-// 🔥 Payment link
+// 🔥 Payment Link
 function generatePaymentLink(amount) {
   const upiId = "adi.singh@icici";
   return `upi://pay?pa=${upiId}&pn=HotStuffCafe&am=${amount}&cu=INR`;
@@ -33,13 +33,12 @@ function handleCheckout(message, user, cart) {
   const session = sessions[user];
 
   // ✅ START
-  if (msg === "confirm") {
+  if (msg === "confirm" && session.step === "idle") {
     if (cart.length === 0) {
       return { reply: "Your cart is empty 🛒" };
     }
 
     session.step = "ask_name";
-
     return { reply: "🙏 Please share your *name*" };
   }
 
@@ -53,8 +52,8 @@ function handleCheckout(message, user, cart) {
     };
   }
 
-  // ✅ ADDRESS (FINAL STEP — NO DEPENDENCY ON STATE FAIL)
-  if (session.step === "ask_address" || session.name) {
+  // ✅ ADDRESS → FINAL
+  if (session.step === "ask_address") {
     try {
       session.address = message;
 
@@ -87,6 +86,13 @@ function handleCheckout(message, user, cart) {
         reply: "Something went wrong 😔 Please type *confirm* again",
       };
     }
+  }
+
+  // 🔥 LOCK USER IN CHECKOUT FLOW
+  if (session.step !== "idle") {
+    return {
+      reply: "Please complete checkout 🙏",
+    };
   }
 
   return null;
