@@ -1,0 +1,11 @@
+Category | Item Name | Price
+
+Pizza | Margherita | 199
+Pizza | Farmhouse | 249
+Pizza | Peppy Paneer | 229
+
+Sandwich | Veg Grill | 149
+Sandwich | Cheese Corn | 129
+
+Pasta | White Sauce Pasta | 199
+Pasta | Red Sauce Pasta | 189
