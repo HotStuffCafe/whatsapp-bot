@@ -1,32 +1,18 @@
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-
-# =========================
-# GOOGLE SHEETS CONNECTION
-# =========================
 def get_menu_data():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ]
-
-    creds = ServiceAccountCredentials.from_json_keyfile_name(
-        "credentials.json", scope
-    )
-
-    client = gspread.authorize(creds)
-
-    # 🔁 Change "Menu" to your actual sheet name
-    sheet = client.open("Menu").sheet1
-
-    records = sheet.get_all_records()
-
     menu = {}
 
-    for row in records:
-        category = row["Category"]
-        item = row["Item Name"]
-        price = row["Price"]
+    with open("menu.txt", "r") as file:
+        lines = file.readlines()
+
+    for line in lines:
+        parts = line.strip().split("|")
+
+        if len(parts) < 3:
+            continue
+
+        category = parts[0].strip()
+        item = parts[1].strip()
+        price = parts[2].strip()
 
         if category not in menu:
             menu[category] = []
@@ -56,7 +42,7 @@ def format_categories(menu):
 
 
 # =========================
-# FORMAT ITEMS IN CATEGORY
+# FORMAT ITEMS
 # =========================
 def format_items(menu, selected_category):
     items = menu[selected_category]
