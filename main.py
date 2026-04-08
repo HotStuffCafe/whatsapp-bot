@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
+from menu import get_menu_data, format_categories, format_items
 
 app = FastAPI()
 
