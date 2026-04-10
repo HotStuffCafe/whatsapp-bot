@@ -16,7 +16,7 @@ def root():
 @app.post("/webhook")
 async def whatsapp_webhook(request: Request):
     data = await request.form()
-    
+
     user_msg = data.get("Body", "").strip().lower()
     user_number = data.get("From")
 
@@ -25,10 +25,9 @@ async def whatsapp_webhook(request: Request):
     # =========================
     # STEP 1: SHOW MENU
     # =========================
-    if any(keyword in user_msg for keyword in ["menu", "show menu", "hi", "hello"]):
+    if user_msg in ["hi", "hello", "menu"]:
         text, categories = format_categories(menu)
 
-        # Save categories for this user
         user_sessions[user_number] = {
             "categories": categories
         }
@@ -36,7 +35,19 @@ async def whatsapp_webhook(request: Request):
         reply = text
 
     # =========================
-    # STEP 2: CATEGORY SELECTION
+    # STEP 2: BACK TO MENU
+    # =========================
+    elif user_msg in ["back", "menu"]:
+        text, categories = format_categories(menu)
+
+        user_sessions[user_number] = {
+            "categories": categories
+        }
+
+        reply = text
+
+    # =========================
+    # STEP 3: CATEGORY SELECTION
     # =========================
     elif user_number in user_sessions:
         categories = user_sessions[user_number]["categories"]
@@ -52,18 +63,17 @@ async def whatsapp_webhook(request: Request):
         # Case 2: User types category name
         else:
             for cat in categories:
-                if user_msg.lower() == cat.lower():
+                if user_msg == cat.lower():
                     selected_category = cat
                     break
 
         if selected_category:
             reply = format_items(menu, selected_category)
 
-            # Save selected category
             user_sessions[user_number]["selected_category"] = selected_category
 
         else:
-            reply = "❌ Invalid option. Please select a valid category."
+            reply = "❌ Invalid option.\n\nType MENU to see options."
 
     # =========================
     # DEFAULT RESPONSE
@@ -72,7 +82,7 @@ async def whatsapp_webhook(request: Request):
         reply = "👋 Welcome! Type *menu* to see available options."
 
     # =========================
-    # TWILIO XML RESPONSE
+    # TWILIO RESPONSE
     # =========================
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
