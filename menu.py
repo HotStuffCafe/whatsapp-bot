@@ -1,7 +1,7 @@
 import requests
 
 # 🔗 Replace with your actual Sheet ID
-MENU_API = "https://opensheet.elk.sh/YOUR_SHEET_ID/MENU"
+MENU_API = "https://opensheet.elk.sh/1HNU2ySZeqoSCZu3qHggLqGud4qbyPIlr12tj6xHNMnE/MENU"
 
 
 # =========================
