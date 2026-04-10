@@ -1,29 +1,34 @@
+import requests
+
+# 🔗 Replace with your actual Sheet ID
+MENU_API = "https://opensheet.elk.sh/YOUR_SHEET_ID/MENU"
+
+
 # =========================
-# READ MENU FROM TXT FILE
+# FETCH MENU FROM GOOGLE SHEET
 # =========================
 def get_menu_data():
+    response = requests.get(MENU_API)
+    data = response.json()
+
     menu = {}
 
-    with open("menu.txt", "r") as file:
-        lines = file.readlines()
+    for row in data:
+        category = row.get("Category", "").strip()
+        item = row.get("Item Name", "").strip()
+        price = int(row.get("Price", 0))
+        discount = int(row.get("Discount", 0))
 
-    # Skip header row
-    for line in lines[1:]:
-        parts = line.strip().split("|")
-
-        if len(parts) < 3:
+        if not category or not item:
             continue
-
-        category = parts[0].strip()
-        item = parts[1].strip()
-        price = parts[2].strip()
 
         if category not in menu:
             menu[category] = []
 
         menu[category].append({
             "item": item,
-            "price": price
+            "price": price,
+            "discount": discount
         })
 
     return menu
@@ -35,12 +40,12 @@ def get_menu_data():
 def format_categories(menu):
     categories = list(menu.keys())
 
-    text = "🍽 *HotStuffCafe Menu*\n\n"
+    text = "📋 *Menu Categories*\n\n"
 
     for i, cat in enumerate(categories, start=1):
         text += f"{i}. {cat}\n"
 
-    text += "\nReply with number or category name."
+    text += "\n👉 Reply with number or category name"
 
     return text, categories
 
@@ -49,13 +54,23 @@ def format_categories(menu):
 # FORMAT ITEMS
 # =========================
 def format_items(menu, selected_category):
-    items = menu[selected_category]
+    items = menu.get(selected_category)
+
+    if not items:
+        return "❌ Category not found.\n\nType MENU to go back."
 
     text = f"🍽 *{selected_category}*\n\n"
 
     for i, item in enumerate(items, start=1):
-        text += f"{i}. {item['item']} - ₹{item['price']}\n"
+        price = item["price"]
+        discount = item["discount"]
 
-    text += "\nType item name to order."
+        if discount > 0:
+            original = price + discount
+            text += f"{i}. {item['item']} - ₹{price} (₹{original})\n"
+        else:
+            text += f"{i}. {item['item']} - ₹{price}\n"
+
+    text += "\n🔙 Type BACK or MENU"
 
     return text
