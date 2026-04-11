@@ -1,33 +1,36 @@
 import os
 import openai
+import json
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
 # =========================
-# AI PARSER
+# AI PARSER (MULTI ITEM)
 # =========================
 def parse_order_with_ai(message, menu_items):
     prompt = f"""
-You are an order parser.
+Extract order details.
 
-Extract:
-- item (must match menu items)
-- quantity (number)
-- address (text)
-
-Menu Items:
+Menu items:
 {menu_items}
 
 User message:
 "{message}"
 
-Return ONLY JSON like:
+Return JSON ONLY:
+
 {{
-  "item": "",
-  "quantity": "",
+  "items": [
+    {{"name": "", "quantity": 0}}
+  ],
   "address": ""
 }}
+
+Rules:
+- Multiple items allowed
+- Match item names closely with menu
+- Quantity must be number
 """
 
     response = openai.ChatCompletion.create(
@@ -36,97 +39,112 @@ Return ONLY JSON like:
         temperature=0
     )
 
-    text = response.choices[0].message.content.strip()
-
     try:
-        import json
-        return json.loads(text)
+        return json.loads(response.choices[0].message.content)
     except:
         return {}
-    
+
 
 # =========================
-# BUILD MENU ITEM LIST
+# GET ALL ITEM NAMES
 # =========================
 def get_all_item_names(menu):
     items = []
-
     for category in menu.values():
         for item in category:
             items.append(item["item"])
-
     return items
 
 
 # =========================
-# ORDER HANDLER
+# HANDLE ORDER
 # =========================
 def handle_order(user_msg, session, menu):
-    
+
     if "order" not in session:
         session["order"] = {
-            "item": None,
-            "quantity": None,
+            "items": [],
             "address": None
         }
 
     order = session["order"]
 
-    # Get menu items list
     menu_items = get_all_item_names(menu)
-
-    # AI PARSE
     parsed = parse_order_with_ai(user_msg, menu_items)
 
-    # UPDATE ORDER
-    if parsed.get("item"):
-        order["item"] = parsed["item"]
+    # =========================
+    # UPDATE ITEMS
+    # =========================
+    if parsed.get("items"):
+        for new_item in parsed["items"]:
+            name = new_item.get("name")
+            qty = new_item.get("quantity")
 
-    if parsed.get("quantity"):
-        try:
-            order["quantity"] = int(parsed["quantity"])
-        except:
-            pass
+            if not name or not qty:
+                continue
 
+            # Check if already exists → update qty
+            found = False
+            for item in order["items"]:
+                if item["name"].lower() == name.lower():
+                    item["quantity"] += int(qty)
+                    found = True
+                    break
+
+            if not found:
+                order["items"].append({
+                    "name": name,
+                    "quantity": int(qty)
+                })
+
+    # =========================
+    # UPDATE ADDRESS
+    # =========================
     if parsed.get("address"):
         order["address"] = parsed["address"]
 
     # =========================
-    # CHECK MISSING
+    # VALIDATION
     # =========================
-    if not order["item"]:
-        return "❓ Which item would you like to order?"
-
-    if not order["quantity"]:
-        return "❓ Please tell me the quantity."
+    if not order["items"]:
+        return "❓ What would you like to order?"
 
     if not order["address"]:
         return "📍 Please share your delivery address."
 
     # =========================
-    # ALL DATA AVAILABLE → CONFIRM
+    # CALCULATE TOTAL
     # =========================
-    # Get price
-    price = None
+    total = 0
+    breakdown = ""
 
-    for category in menu.values():
-        for item in category:
-            if item["item"].lower() == order["item"].lower():
-                price = item["price"]
+    for order_item in order["items"]:
+        name = order_item["name"]
+        qty = order_item["quantity"]
 
-    total = price * order["quantity"] if price else 0
+        price = 0
 
-    confirmation = f"""
+        for category in menu.values():
+            for item in category:
+                if item["item"].lower() == name.lower():
+                    price = item["price"]
+
+        item_total = price * qty
+        total += item_total
+
+        breakdown += f"{name} x {qty} = ₹{item_total}\n"
+
+    # =========================
+    # FINAL CONFIRMATION
+    # =========================
+    return f"""
 🧾 *Your Order*
 
-Item: {order['item']}
-Qty: {order['quantity']}
-Price: ₹{price}
-Total: ₹{total}
+{breakdown}
+
+💰 Total: ₹{total}
 
 📍 Address: {order['address']}
 
 ✅ Reply YES to confirm or NO to cancel
 """
-
-    return confirmation
