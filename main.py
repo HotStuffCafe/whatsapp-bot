@@ -23,9 +23,9 @@ async def whatsapp_webhook(request: Request):
     menu = get_menu_data()
 
     # =========================
-    # STEP 1: SHOW MENU
+    # ✅ GLOBAL MENU HANDLER (HIGHEST PRIORITY)
     # =========================
-    if user_msg in ["hi", "hello", "menu"]:
+    if user_msg in ["hi", "hello", "menu", "show menu", "back"]:
         text, categories = format_categories(menu)
 
         user_sessions[user_number] = {
@@ -35,22 +35,10 @@ async def whatsapp_webhook(request: Request):
         reply = text
 
     # =========================
-    # STEP 2: BACK TO MENU
-    # =========================
-    elif user_msg in ["back", "menu"]:
-        text, categories = format_categories(menu)
-
-        user_sessions[user_number] = {
-            "categories": categories
-        }
-
-        reply = text
-
-    # =========================
-    # STEP 3: CATEGORY SELECTION
+    # ✅ CATEGORY SELECTION
     # =========================
     elif user_number in user_sessions:
-        categories = user_sessions[user_number]["categories"]
+        categories = user_sessions[user_number].get("categories", [])
 
         selected_category = None
 
@@ -70,19 +58,20 @@ async def whatsapp_webhook(request: Request):
         if selected_category:
             reply = format_items(menu, selected_category)
 
+            # Save selected category
             user_sessions[user_number]["selected_category"] = selected_category
 
         else:
             reply = "❌ Invalid option.\n\nType MENU to see options."
 
     # =========================
-    # DEFAULT RESPONSE
+    # ✅ DEFAULT RESPONSE
     # =========================
     else:
         reply = "👋 Welcome! Type *menu* to see available options."
 
     # =========================
-    # TWILIO RESPONSE
+    # ✅ TWILIO RESPONSE
     # =========================
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
