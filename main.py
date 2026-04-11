@@ -1,10 +1,11 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from menu import get_menu_data, format_categories, format_items, format_all_items
+from ORDER import handle_order
 
 app = FastAPI()
 
-# Simple in-memory session storage
+# In-memory session store
 user_sessions = {}
 
 
@@ -20,41 +21,47 @@ async def whatsapp_webhook(request: Request):
     user_msg = data.get("Body", "").strip().lower()
     user_number = data.get("From")
 
+    # Load menu
     menu = get_menu_data()
 
+    # Initialize session if not exists
+    if user_number not in user_sessions:
+        user_sessions[user_number] = {}
+
+    session = user_sessions[user_number]
+
     # =========================
-    # ✅ GLOBAL MENU HANDLER (TOP PRIORITY)
+    # 1. GLOBAL MENU HANDLER (TOP PRIORITY)
     # =========================
     if user_msg in ["hi", "hello", "menu", "show menu", "back"]:
         text, categories = format_categories(menu)
 
-        user_sessions[user_number] = {
-            "categories": categories
-        }
+        session.clear()
+        session["categories"] = categories
 
         reply = text
 
     # =========================
-    # ✅ ALL ITEMS HANDLER
+    # 2. ALL ITEMS HANDLER
     # =========================
     elif user_msg == "all items":
         reply = format_all_items(menu)
 
     # =========================
-    # ✅ CATEGORY SELECTION
+    # 3. CATEGORY SELECTION (ONLY IF NOT IN ORDER FLOW)
     # =========================
-    elif user_number in user_sessions:
-        categories = user_sessions[user_number].get("categories", [])
+    elif "order" not in session:
+        categories = session.get("categories", [])
 
         selected_category = None
 
-        # Case 1: User enters number
+        # Case 1: number selection
         if user_msg.isdigit():
             index = int(user_msg) - 1
             if 0 <= index < len(categories):
                 selected_category = categories[index]
 
-        # Case 2: User types category name
+        # Case 2: text selection
         else:
             for cat in categories:
                 if user_msg == cat.lower():
@@ -64,20 +71,30 @@ async def whatsapp_webhook(request: Request):
         if selected_category:
             reply = format_items(menu, selected_category)
 
-            # Save selected category
-            user_sessions[user_number]["selected_category"] = selected_category
+            # Start order session
+            session["order"] = {
+                "item": None,
+                "quantity": None,
+                "address": None
+            }
 
         else:
             reply = "❌ Invalid option.\n\nType MENU to see options."
 
     # =========================
-    # ✅ DEFAULT RESPONSE
+    # 4. ORDER HANDLER
+    # =========================
+    elif "order" in session:
+        reply = handle_order(user_msg, session, menu)
+
+    # =========================
+    # 5. DEFAULT RESPONSE
     # =========================
     else:
         reply = "👋 Welcome! Type *menu* to see available options."
 
     # =========================
-    # ✅ TWILIO XML RESPONSE
+    # TWILIO XML RESPONSE
     # =========================
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
