@@ -46,7 +46,7 @@ def get_menu_data():
 
 
 # =========================
-# FORMAT CATEGORY LIST
+# FORMAT CATEGORY LIST (UPDATED)
 # =========================
 def format_categories(menu):
     categories = list(menu.keys())
@@ -56,13 +56,14 @@ def format_categories(menu):
     for i, cat in enumerate(categories, start=1):
         text += f"{i}. {cat}\n"
 
-    text += "\n👉 Reply with number or category name"
+    text += "\n👉 Reply with *number* or *category name*"
+    text += "\n👉 To see all items, type *all items*"
 
     return text, categories
 
 
 # =========================
-# FORMAT ITEMS (WITH DISCOUNT)
+# FORMAT ITEMS (UPDATED INSTRUCTION)
 # =========================
 def format_items(menu, selected_category):
     items = menu.get(selected_category)
@@ -82,6 +83,34 @@ def format_items(menu, selected_category):
         else:
             text += f"{i}. {item['item']} - ₹{price}\n"
 
-    text += "\n🔙 Type BACK or MENU"
+    text += "\n\n👉 Type *back* or *menu* to go to main menu"
+    text += "\n👉 To see all items, type *all items*"
+
+    return text
+
+
+# =========================
+# FORMAT ALL ITEMS (NEW)
+# =========================
+def format_all_items(menu):
+    text = "📦 *All Menu Items*\n\n"
+
+    count = 1
+
+    for category, items in menu.items():
+        for item in items:
+            price = item["price"]
+            discount = item["discount"]
+
+            if discount > 0:
+                original = price + discount
+                price_text = f"₹{price} (₹{original})"
+            else:
+                price_text = f"₹{price}"
+
+            text += f"{count}. {category} | {item['item']} | {price_text}\n"
+            count += 1
+
+    text += "\n\n👉 Type *menu* to go back"
 
     return text
