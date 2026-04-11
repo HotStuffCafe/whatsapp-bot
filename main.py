@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
-from menu import get_menu_data, format_categories, format_items
+from menu import get_menu_data, format_categories, format_items, format_all_items
 
 app = FastAPI()
 
@@ -23,7 +23,7 @@ async def whatsapp_webhook(request: Request):
     menu = get_menu_data()
 
     # =========================
-    # ✅ GLOBAL MENU HANDLER (HIGHEST PRIORITY)
+    # ✅ GLOBAL MENU HANDLER (TOP PRIORITY)
     # =========================
     if user_msg in ["hi", "hello", "menu", "show menu", "back"]:
         text, categories = format_categories(menu)
@@ -33,6 +33,12 @@ async def whatsapp_webhook(request: Request):
         }
 
         reply = text
+
+    # =========================
+    # ✅ ALL ITEMS HANDLER
+    # =========================
+    elif user_msg == "all items":
+        reply = format_all_items(menu)
 
     # =========================
     # ✅ CATEGORY SELECTION
@@ -71,7 +77,7 @@ async def whatsapp_webhook(request: Request):
         reply = "👋 Welcome! Type *menu* to see available options."
 
     # =========================
-    # ✅ TWILIO RESPONSE
+    # ✅ TWILIO XML RESPONSE
     # =========================
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
