@@ -5,7 +5,6 @@ from ORDER import handle_order
 
 app = FastAPI()
 
-# In-memory session store
 user_sessions = {}
 
 
@@ -21,19 +20,26 @@ async def whatsapp_webhook(request: Request):
     user_msg = data.get("Body", "").strip().lower()
     user_number = data.get("From")
 
-    # Load menu
     menu = get_menu_data()
 
-    # Initialize session if not exists
     if user_number not in user_sessions:
         user_sessions[user_number] = {}
 
     session = user_sessions[user_number]
 
     # =========================
-    # 1. GLOBAL MENU HANDLER (TOP PRIORITY)
+    # 🔥 1. ORDER FIRST (TOP PRIORITY)
     # =========================
-    if user_msg in ["hi", "hello", "menu", "show menu", "back"]:
+    order_reply = handle_order(user_msg, session, menu)
+
+    # If meaningful order response → return immediately
+    if not order_reply.startswith("❓"):
+        reply = order_reply
+
+    # =========================
+    # 2. GLOBAL MENU HANDLER
+    # =========================
+    elif user_msg in ["hi", "hello", "menu", "show menu", "back"]:
         text, categories = format_categories(menu)
 
         session.clear()
@@ -42,26 +48,24 @@ async def whatsapp_webhook(request: Request):
         reply = text
 
     # =========================
-    # 2. ALL ITEMS HANDLER
+    # 3. ALL ITEMS
     # =========================
     elif user_msg == "all items":
         reply = format_all_items(menu)
 
     # =========================
-    # 3. CATEGORY SELECTION (ONLY IF NOT IN ORDER FLOW)
+    # 4. CATEGORY SELECTION
     # =========================
-    elif "order" not in session:
+    else:
         categories = session.get("categories", [])
 
         selected_category = None
 
-        # Case 1: number selection
         if user_msg.isdigit():
             index = int(user_msg) - 1
             if 0 <= index < len(categories):
                 selected_category = categories[index]
 
-        # Case 2: text selection
         else:
             for cat in categories:
                 if user_msg == cat.lower():
@@ -70,31 +74,11 @@ async def whatsapp_webhook(request: Request):
 
         if selected_category:
             reply = format_items(menu, selected_category)
-
-            # Start order session
-            session["order"] = {
-                "item": None,
-                "quantity": None,
-                "address": None
-            }
-
         else:
             reply = "❌ Invalid option.\n\nType MENU to see options."
 
     # =========================
-    # 4. ORDER HANDLER
-    # =========================
-    elif "order" in session:
-        reply = handle_order(user_msg, session, menu)
-
-    # =========================
-    # 5. DEFAULT RESPONSE
-    # =========================
-    else:
-        reply = "👋 Welcome! Type *menu* to see available options."
-
-    # =========================
-    # TWILIO XML RESPONSE
+    # RESPONSE
     # =========================
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
