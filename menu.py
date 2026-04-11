@@ -1,12 +1,8 @@
 import requests
 
-# 🔗 Your Google Sheet API
 MENU_API = "https://opensheet.elk.sh/1HNU2ySZeqoSCZu3qHggLqGud4qbyPIlr12tj6xHNMnE/MENU"
 
 
-# =========================
-# SAFE INTEGER CONVERSION
-# =========================
 def safe_int(value):
     try:
         return int(value)
@@ -14,9 +10,6 @@ def safe_int(value):
         return 0
 
 
-# =========================
-# FETCH MENU FROM GOOGLE SHEET
-# =========================
 def get_menu_data():
     response = requests.get(MENU_API)
     data = response.json()
@@ -45,9 +38,6 @@ def get_menu_data():
     return menu
 
 
-# =========================
-# FORMAT CATEGORY LIST (UPDATED)
-# =========================
 def format_categories(menu):
     categories = list(menu.keys())
 
@@ -62,9 +52,6 @@ def format_categories(menu):
     return text, categories
 
 
-# =========================
-# FORMAT ITEMS (UPDATED INSTRUCTION)
-# =========================
 def format_items(menu, selected_category):
     items = menu.get(selected_category)
 
@@ -89,9 +76,6 @@ def format_items(menu, selected_category):
     return text
 
 
-# =========================
-# FORMAT ALL ITEMS (NEW)
-# =========================
 def format_all_items(menu):
     text = "📦 *All Menu Items*\n\n"
 
