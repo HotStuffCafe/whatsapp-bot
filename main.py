@@ -28,16 +28,15 @@ async def whatsapp_webhook(request: Request):
     session = user_sessions[user_number]
 
     # =========================
-    # 🔥 1. ORDER FIRST (TOP PRIORITY)
+    # 🔥 ORDER FIRST
     # =========================
     order_reply = handle_order(user_msg, session, menu)
 
-    # If meaningful order response → return immediately
     if not order_reply.startswith("❓"):
         reply = order_reply
 
     # =========================
-    # 2. GLOBAL MENU HANDLER
+    # MENU HANDLER
     # =========================
     elif user_msg in ["hi", "hello", "menu", "show menu", "back"]:
         text, categories = format_categories(menu)
@@ -48,13 +47,13 @@ async def whatsapp_webhook(request: Request):
         reply = text
 
     # =========================
-    # 3. ALL ITEMS
+    # ALL ITEMS
     # =========================
     elif user_msg == "all items":
         reply = format_all_items(menu)
 
     # =========================
-    # 4. CATEGORY SELECTION
+    # CATEGORY
     # =========================
     else:
         categories = session.get("categories", [])
