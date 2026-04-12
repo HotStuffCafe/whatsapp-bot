@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 requests
-openai==0.28
+openai
 gspread
 oauth2client
 python-dotenv
