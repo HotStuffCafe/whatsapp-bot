@@ -1,13 +1,18 @@
 import os
-import openai
 import json
+from openai import OpenAI
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-# =========================
-# AI PARSER (MULTI ITEM)
-# =========================
+def get_all_item_names(menu):
+    items = []
+    for category in menu.values():
+        for item in category:
+            items.append(item["item"])
+    return items
+
+
 def parse_order_with_ai(message, menu_items):
     prompt = f"""
 Extract order details.
@@ -29,11 +34,12 @@ Return JSON ONLY:
 
 Rules:
 - Multiple items allowed
-- Match item names closely with menu
+- Match item names with menu
 - Quantity must be number
+- Address includes shop, room, flat, office, etc.
 """
 
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
         temperature=0
@@ -45,21 +51,10 @@ Rules:
         return {}
 
 
-# =========================
-# GET ALL ITEM NAMES
-# =========================
-def get_all_item_names(menu):
-    items = []
-    for category in menu.values():
-        for item in category:
-            items.append(item["item"])
-    return items
-
-
-# =========================
-# HANDLE ORDER
-# =========================
 def handle_order(user_msg, session, menu):
+
+    if user_msg in ["hi", "hello", "menu", "back", "show menu"]:
+        return "❓"
 
     if "order" not in session:
         session["order"] = {
@@ -72,9 +67,7 @@ def handle_order(user_msg, session, menu):
     menu_items = get_all_item_names(menu)
     parsed = parse_order_with_ai(user_msg, menu_items)
 
-    # =========================
-    # UPDATE ITEMS
-    # =========================
+    # Update items
     if parsed.get("items"):
         for new_item in parsed["items"]:
             name = new_item.get("name")
@@ -83,7 +76,6 @@ def handle_order(user_msg, session, menu):
             if not name or not qty:
                 continue
 
-            # Check if already exists → update qty
             found = False
             for item in order["items"]:
                 if item["name"].lower() == name.lower():
@@ -97,24 +89,23 @@ def handle_order(user_msg, session, menu):
                     "quantity": int(qty)
                 })
 
-    # =========================
-    # UPDATE ADDRESS
-    # =========================
+    # Update address (AI)
     if parsed.get("address"):
         order["address"] = parsed["address"]
 
-    # =========================
-    # VALIDATION
-    # =========================
+    # Fallback address detection
+    if not order["address"]:
+        if any(word in user_msg.lower() for word in ["shop", "room", "flat", "office", "sector"]):
+            order["address"] = user_msg
+
+    # Validation
     if not order["items"]:
         return "❓ What would you like to order?"
 
     if not order["address"]:
         return "📍 Please share your delivery address."
 
-    # =========================
-    # CALCULATE TOTAL
-    # =========================
+    # Calculate total
     total = 0
     breakdown = ""
 
@@ -123,7 +114,6 @@ def handle_order(user_msg, session, menu):
         qty = order_item["quantity"]
 
         price = 0
-
         for category in menu.values():
             for item in category:
                 if item["item"].lower() == name.lower():
@@ -134,9 +124,6 @@ def handle_order(user_msg, session, menu):
 
         breakdown += f"{name} x {qty} = ₹{item_total}\n"
 
-    # =========================
-    # FINAL CONFIRMATION
-    # =========================
     return f"""
 🧾 *Your Order*
 
