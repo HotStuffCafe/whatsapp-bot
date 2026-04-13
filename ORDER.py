@@ -5,6 +5,8 @@ from openai import OpenAI
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+ENABLE_PAYMENT = os.getenv("ENABLE_PAYMENT", "false").lower() == "true"
+
 
 def generate_order_id():
     return f"ORD{random.randint(1000,9999)}"
@@ -25,28 +27,16 @@ Extract order details.
 Menu items:
 {menu_items}
 
-User message:
+Message:
 "{message}"
 
-Return JSON ONLY:
+Return JSON:
 
 {{
-  "items": [
-    {{"name": "", "quantity": 0}}
-  ],
+  "items": [{{"name": "", "quantity": 0}}],
   "address": "",
-  "action": "" 
+  "action": ""
 }}
-
-Actions:
-- "add"
-- "remove"
-- "none"
-
-Examples:
-"add 2 chai" → add  
-"remove 1 chai" → remove  
-"2 pizza" → add  
 """
 
     response = client.chat.completions.create(
@@ -61,12 +51,56 @@ Examples:
         return {}
 
 
+# =========================
+# 🛒 SHOW CART
+# =========================
+def show_cart(session, menu):
+    if "order" not in session or not session["order"]["items"]:
+        return "🛒 Your cart is empty."
+
+    order = session["order"]
+
+    total = 0
+    text = "🛒 *Your Cart*\n\n"
+
+    for item in order["items"]:
+        name = item["name"]
+        qty = item["quantity"]
+
+        price = 0
+        for cat in menu.values():
+            for i in cat:
+                if i["item"].lower() == name.lower():
+                    price = i["price"]
+
+        item_total = price * qty
+        total += item_total
+
+        text += f"{name} x {qty} = ₹{item_total}\n"
+
+    text += f"\n💰 Total: ₹{total}"
+
+    if order.get("address"):
+        text += f"\n📍 Address: {order['address']}"
+
+    return text
+
+
+# =========================
+# MAIN HANDLER
+# =========================
 def handle_order(user_msg, session, menu):
 
     user_msg_lower = user_msg.lower()
 
     # =========================
-    # ✅ CONFIRM ORDER
+    # 🛒 CART COMMANDS
+    # =========================
+    if user_msg_lower in ["cart", "order", "show cart", "show order", "kart"]:
+        return show_cart(session, menu)
+
+    # =========================
+    # ✅ CONFIRM
     # =========================
     if user_msg_lower == "yes":
         if "order" not in session or not session["order"]["items"]:
@@ -75,46 +109,45 @@ def handle_order(user_msg, session, menu):
         order = session["order"]
         order_id = generate_order_id()
 
-        response = f"""
-🎉 *Order Confirmed!*
+        # PAYMENT FLOW
+        if ENABLE_PAYMENT:
+            return f"""
+🧾 Order ID: {order_id}
+
+Your order has been received, kindly make payment to confirm your order.
+
+💳 Payment Options:
+1. UPI
+2. COD
+
+Reply with UPI or COD
+"""
+
+        # NO PAYMENT FLOW
+        session.clear()
+        return f"""
+🎉 Order Confirmed!
 
 🆔 Order ID: {order_id}
 
-📦 Items:
+Your order has been received.
 """
-
-        for item in order["items"]:
-            response += f"- {item['name']} x {item['quantity']}\n"
-
-        response += f"""
-📍 Address: {order['address']}
-
-🙏 Thank you for your order!
-"""
-
-        # CLEAR SESSION
-        session.clear()
-
-        return response
 
     # =========================
-    # ❌ CANCEL ORDER
+    # ❌ CANCEL
     # =========================
     if user_msg_lower == "no":
         session.clear()
         return "❌ Your order has been cancelled."
 
     # =========================
-    # SKIP FOR MENU COMMANDS
+    # SKIP MENU COMMANDS
     # =========================
-    if user_msg_lower in ["hi", "hello", "menu", "back", "show menu", "all items"]:
+    if user_msg_lower in ["menu", "back", "hi", "hello", "all items"]:
         return "❓"
 
     if "order" not in session:
-        session["order"] = {
-            "items": [],
-            "address": None
-        }
+        session["order"] = {"items": [], "address": None}
 
     order = session["order"]
 
@@ -124,7 +157,7 @@ def handle_order(user_msg, session, menu):
     action = parsed.get("action", "add")
 
     # =========================
-    # HANDLE ITEMS
+    # ADD / REMOVE
     # =========================
     if parsed.get("items"):
         for new_item in parsed["items"]:
@@ -141,8 +174,7 @@ def handle_order(user_msg, session, menu):
                         if item["quantity"] <= 0:
                             order["items"].remove(item)
                         break
-
-            else:  # ADD
+            else:
                 found = False
                 for item in order["items"]:
                     if item["name"].lower() == name.lower():
@@ -151,10 +183,7 @@ def handle_order(user_msg, session, menu):
                         break
 
                 if not found:
-                    order["items"].append({
-                        "name": name,
-                        "quantity": qty
-                    })
+                    order["items"].append({"name": name, "quantity": qty})
 
     # =========================
     # ADDRESS
@@ -163,7 +192,7 @@ def handle_order(user_msg, session, menu):
         order["address"] = parsed["address"]
 
     if not order["address"]:
-        if any(word in user_msg_lower for word in ["shop", "room", "flat", "office", "sector"]):
+        if any(w in user_msg_lower for w in ["shop", "room", "flat", "office", "sector"]):
             order["address"] = user_msg
 
     # =========================
@@ -176,34 +205,28 @@ def handle_order(user_msg, session, menu):
         return "📍 Please share your delivery address."
 
     # =========================
-    # BUILD RESPONSE
+    # RESPONSE
     # =========================
     total = 0
-    breakdown = ""
+    text = "🧾 *Your Order*\n\n"
 
-    for order_item in order["items"]:
-        name = order_item["name"]
-        qty = order_item["quantity"]
+    for item in order["items"]:
+        name = item["name"]
+        qty = item["quantity"]
 
         price = 0
-        for category in menu.values():
-            for item in category:
-                if item["item"].lower() == name.lower():
-                    price = item["price"]
+        for cat in menu.values():
+            for i in cat:
+                if i["item"].lower() == name.lower():
+                    price = i["price"]
 
         item_total = price * qty
         total += item_total
 
-        breakdown += f"{name} x {qty} = ₹{item_total}\n"
+        text += f"{name} x {qty} = ₹{item_total}\n"
 
-    return f"""
-🧾 *Your Order*
+    text += f"\n💰 Total: ₹{total}"
+    text += f"\n📍 Address: {order['address']}"
+    text += "\n\n✅ Reply YES to confirm or NO to cancel"
 
-{breakdown}
-
-💰 Total: ₹{total}
-
-📍 Address: {order['address']}
-
-✅ Reply YES to confirm or NO to cancel
-"""
+    return text
