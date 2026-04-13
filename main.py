@@ -5,6 +5,7 @@ from ORDER import handle_order
 
 app = FastAPI()
 
+# In-memory session store
 user_sessions = {}
 
 
@@ -20,48 +21,55 @@ async def whatsapp_webhook(request: Request):
     user_msg = data.get("Body", "").strip().lower()
     user_number = data.get("From")
 
+    # Load menu
     menu = get_menu_data()
+    categories = list(menu.keys())
 
+    # Initialize session
     if user_number not in user_sessions:
         user_sessions[user_number] = {}
 
     session = user_sessions[user_number]
 
-    categories = list(menu.keys())
+    # Store user number for sheet logging
+    session["user_number"] = user_number
 
     # =========================
     # 🔥 1. GLOBAL COMMANDS (TOP PRIORITY)
     # =========================
 
+    # MENU / BACK / GREETING
     if user_msg in ["hi", "hello", "menu", "back", "show menu"]:
         session.clear()
-        text, categories = format_categories(menu)
-        session["categories"] = categories
+        session["user_number"] = user_number
+
+        text, cats = format_categories(menu)
+        session["categories"] = cats
+
         reply = text
 
+    # ALL ITEMS
     elif user_msg == "all items":
-        session.clear()
         reply = format_all_items(menu)
 
-    # CATEGORY DIRECT ACCESS
+    # DIRECT CATEGORY ACCESS
     elif user_msg in [cat.lower() for cat in categories]:
-        session.clear()
         selected_category = next(cat for cat in categories if cat.lower() == user_msg)
         reply = format_items(menu, selected_category)
 
     # =========================
-    # 🧠 2. ORDER FLOW
+    # 🧠 2. ORDER FLOW (AI)
     # =========================
     else:
         order_reply = handle_order(user_msg, session, menu)
 
-        if not order_reply.startswith("❓"):
+        if order_reply and not order_reply.startswith("❓"):
             reply = order_reply
         else:
             reply = "❌ Invalid option.\n\nType MENU to see options."
 
     # =========================
-    # RESPONSE
+    # 📩 TWILIO RESPONSE
     # =========================
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
