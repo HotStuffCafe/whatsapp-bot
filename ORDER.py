@@ -1,8 +1,13 @@
 import os
 import json
+import random
 from openai import OpenAI
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+
+def generate_order_id():
+    return f"ORD{random.randint(1000,9999)}"
 
 
 def get_all_item_names(menu):
@@ -29,14 +34,19 @@ Return JSON ONLY:
   "items": [
     {{"name": "", "quantity": 0}}
   ],
-  "address": ""
+  "address": "",
+  "action": "" 
 }}
 
-Rules:
-- Multiple items allowed
-- Match item names with menu
-- Quantity must be number
-- Address includes shop, room, flat, office, etc.
+Actions:
+- "add"
+- "remove"
+- "none"
+
+Examples:
+"add 2 chai" → add  
+"remove 1 chai" → remove  
+"2 pizza" → add  
 """
 
     response = client.chat.completions.create(
@@ -53,7 +63,51 @@ Rules:
 
 def handle_order(user_msg, session, menu):
 
-    if user_msg in ["hi", "hello", "menu", "back", "show menu"]:
+    user_msg_lower = user_msg.lower()
+
+    # =========================
+    # ✅ CONFIRM ORDER
+    # =========================
+    if user_msg_lower == "yes":
+        if "order" not in session or not session["order"]["items"]:
+            return "❌ No active order."
+
+        order = session["order"]
+        order_id = generate_order_id()
+
+        response = f"""
+🎉 *Order Confirmed!*
+
+🆔 Order ID: {order_id}
+
+📦 Items:
+"""
+
+        for item in order["items"]:
+            response += f"- {item['name']} x {item['quantity']}\n"
+
+        response += f"""
+📍 Address: {order['address']}
+
+🙏 Thank you for your order!
+"""
+
+        # CLEAR SESSION
+        session.clear()
+
+        return response
+
+    # =========================
+    # ❌ CANCEL ORDER
+    # =========================
+    if user_msg_lower == "no":
+        session.clear()
+        return "❌ Your order has been cancelled."
+
+    # =========================
+    # SKIP FOR MENU COMMANDS
+    # =========================
+    if user_msg_lower in ["hi", "hello", "menu", "back", "show menu", "all items"]:
         return "❓"
 
     if "order" not in session:
@@ -67,45 +121,63 @@ def handle_order(user_msg, session, menu):
     menu_items = get_all_item_names(menu)
     parsed = parse_order_with_ai(user_msg, menu_items)
 
-    # Update items
+    action = parsed.get("action", "add")
+
+    # =========================
+    # HANDLE ITEMS
+    # =========================
     if parsed.get("items"):
         for new_item in parsed["items"]:
             name = new_item.get("name")
-            qty = new_item.get("quantity")
+            qty = int(new_item.get("quantity", 0))
 
-            if not name or not qty:
+            if not name or qty <= 0:
                 continue
 
-            found = False
-            for item in order["items"]:
-                if item["name"].lower() == name.lower():
-                    item["quantity"] += int(qty)
-                    found = True
-                    break
+            if action == "remove":
+                for item in order["items"]:
+                    if item["name"].lower() == name.lower():
+                        item["quantity"] -= qty
+                        if item["quantity"] <= 0:
+                            order["items"].remove(item)
+                        break
 
-            if not found:
-                order["items"].append({
-                    "name": name,
-                    "quantity": int(qty)
-                })
+            else:  # ADD
+                found = False
+                for item in order["items"]:
+                    if item["name"].lower() == name.lower():
+                        item["quantity"] += qty
+                        found = True
+                        break
 
-    # Update address (AI)
+                if not found:
+                    order["items"].append({
+                        "name": name,
+                        "quantity": qty
+                    })
+
+    # =========================
+    # ADDRESS
+    # =========================
     if parsed.get("address"):
         order["address"] = parsed["address"]
 
-    # Fallback address detection
     if not order["address"]:
-        if any(word in user_msg.lower() for word in ["shop", "room", "flat", "office", "sector"]):
+        if any(word in user_msg_lower for word in ["shop", "room", "flat", "office", "sector"]):
             order["address"] = user_msg
 
-    # Validation
+    # =========================
+    # VALIDATION
+    # =========================
     if not order["items"]:
         return "❓ What would you like to order?"
 
     if not order["address"]:
         return "📍 Please share your delivery address."
 
-    # Calculate total
+    # =========================
+    # BUILD RESPONSE
+    # =========================
     total = 0
     breakdown = ""
 
