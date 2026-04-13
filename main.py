@@ -27,52 +27,36 @@ async def whatsapp_webhook(request: Request):
 
     session = user_sessions[user_number]
 
-    # =========================
-    # 🔥 ORDER FIRST
-    # =========================
-    order_reply = handle_order(user_msg, session, menu)
-
-    if not order_reply.startswith("❓"):
-        reply = order_reply
+    categories = list(menu.keys())
 
     # =========================
-    # MENU HANDLER
+    # 🔥 1. GLOBAL COMMANDS (TOP PRIORITY)
     # =========================
-    elif user_msg in ["hi", "hello", "menu", "show menu", "back"]:
-        text, categories = format_categories(menu)
 
+    if user_msg in ["hi", "hello", "menu", "back", "show menu"]:
         session.clear()
+        text, categories = format_categories(menu)
         session["categories"] = categories
-
         reply = text
 
-    # =========================
-    # ALL ITEMS
-    # =========================
     elif user_msg == "all items":
+        session.clear()
         reply = format_all_items(menu)
 
+    # CATEGORY DIRECT ACCESS
+    elif user_msg in [cat.lower() for cat in categories]:
+        session.clear()
+        selected_category = next(cat for cat in categories if cat.lower() == user_msg)
+        reply = format_items(menu, selected_category)
+
     # =========================
-    # CATEGORY
+    # 🧠 2. ORDER FLOW
     # =========================
     else:
-        categories = session.get("categories", [])
+        order_reply = handle_order(user_msg, session, menu)
 
-        selected_category = None
-
-        if user_msg.isdigit():
-            index = int(user_msg) - 1
-            if 0 <= index < len(categories):
-                selected_category = categories[index]
-
-        else:
-            for cat in categories:
-                if user_msg == cat.lower():
-                    selected_category = cat
-                    break
-
-        if selected_category:
-            reply = format_items(menu, selected_category)
+        if not order_reply.startswith("❓"):
+            reply = order_reply
         else:
             reply = "❌ Invalid option.\n\nType MENU to see options."
 
