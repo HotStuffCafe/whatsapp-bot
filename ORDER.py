@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import re
 from openai import OpenAI
 from sheet_update import save_order_to_sheet
 
@@ -17,52 +18,36 @@ def generate_order_id():
 
 
 # =========================
-# GET ALL MENU ITEMS
+# SIMPLE PARSER (FAST + RELIABLE)
 # =========================
-def get_all_item_names(menu):
+def parse_simple(message, menu):
+
     items = []
-    for category in menu.values():
-        for item in category:
-            items.append(item["item"])
-    return items
+    address = None
 
+    # Detect address
+    if any(word in message.lower() for word in ["shop", "room", "flat", "office"]):
+        address = message
 
-# =========================
-# AI PARSER
-# =========================
-def parse_order_with_ai(message, menu_items):
-    prompt = f"""
-Extract order details.
+    # Extract quantities + items
+    words = message.lower().split()
 
-Menu items:
-{menu_items}
+    for i, word in enumerate(words):
+        if word.isdigit():
+            qty = int(word)
 
-Message:
-"{message}"
+            if i + 1 < len(words):
+                item_word = words[i + 1]
 
-Return JSON:
+                for category in menu.values():
+                    for item in category:
+                        if item_word in item["item"].lower():
+                            items.append({
+                                "name": item["item"],
+                                "quantity": qty
+                            })
 
-{{
-  "items": [{{"name": "", "quantity": 0}}],
-  "address": "",
-  "action": ""
-}}
-
-Rules:
-- Multiple items allowed
-- action = add/remove/none
-"""
-
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    )
-
-    try:
-        return json.loads(response.choices[0].message.content)
-    except:
-        return {}
+    return items, address
 
 
 # =========================
@@ -75,7 +60,7 @@ def show_cart(session, menu):
     order = session["order"]
 
     total = 0
-    text = "🛒 *Your Cart*\n\n"
+    text = "🧾 Your Order\n\n"
 
     for item in order["items"]:
         name = item["name"]
@@ -105,72 +90,13 @@ def show_cart(session, menu):
 # =========================
 def handle_order(user_msg, session, menu):
 
-    user_msg_lower = user_msg.lower()
+    msg = user_msg.lower()
 
     # =========================
     # CART COMMANDS
     # =========================
-    if user_msg_lower in ["cart", "order", "show cart", "show order", "kart"]:
+    if msg in ["cart", "order", "show order", "show cart"]:
         return show_cart(session, menu)
-
-    # =========================
-    # CONFIRM ORDER
-    # =========================
-    if user_msg_lower == "yes":
-        if "order" not in session or not session["order"]["items"]:
-            return "❌ No active order."
-
-        order = session["order"]
-        order_id = generate_order_id()
-
-        # PAYMENT FLOW
-        if ENABLE_PAYMENT:
-            session["pending_order_id"] = order_id
-
-            return f"""
-🧾 Order ID: {order_id}
-
-Your order has been received, kindly make payment to confirm your order.
-
-💳 Payment Options:
-1. UPI
-2. COD
-
-Reply with UPI or COD
-"""
-
-        # NO PAYMENT FLOW → SAVE DIRECTLY
-        save_order_to_sheet(
-            order_id,
-            order,
-            session.get("user_number"),
-            menu,
-            payment_mode="COD",
-            payment_status="na"
-        )
-
-        session.clear()
-
-        return f"""
-🎉 Order Confirmed!
-
-🆔 Order ID: {order_id}
-
-Your order has been received.
-"""
-
-    # =========================
-    # CANCEL ORDER
-    # =========================
-    if user_msg_lower == "no":
-        session.clear()
-        return "❌ Your order has been cancelled."
-
-    # =========================
-    # SKIP MENU COMMANDS
-    # =========================
-    if user_msg_lower in ["menu", "back", "hi", "hello", "all items"]:
-        return "❓"
 
     # =========================
     # INIT ORDER
@@ -184,69 +110,41 @@ Your order has been received.
     order = session["order"]
 
     # =========================
-    # AI PARSE
+    # PARSE MESSAGE
     # =========================
-    menu_items = get_all_item_names(menu)
-    parsed = parse_order_with_ai(user_msg, menu_items)
+    items, address = parse_simple(user_msg, menu)
 
-    action = parsed.get("action", "add")
+    # ADD ITEMS
+    for new_item in items:
+        found = False
 
-    # =========================
-    # ADD / REMOVE ITEMS
-    # =========================
-    if parsed.get("items"):
-        for new_item in parsed["items"]:
-            name = new_item.get("name")
-            qty = int(new_item.get("quantity", 0))
+        for item in order["items"]:
+            if item["name"].lower() == new_item["name"].lower():
+                item["quantity"] += new_item["quantity"]
+                found = True
+                break
 
-            if not name or qty <= 0:
-                continue
+        if not found:
+            order["items"].append(new_item)
 
-            if action == "remove":
-                for item in order["items"]:
-                    if item["name"].lower() == name.lower():
-                        item["quantity"] -= qty
-                        if item["quantity"] <= 0:
-                            order["items"].remove(item)
-                        break
-            else:
-                found = False
-                for item in order["items"]:
-                    if item["name"].lower() == name.lower():
-                        item["quantity"] += qty
-                        found = True
-                        break
-
-                if not found:
-                    order["items"].append({
-                        "name": name,
-                        "quantity": qty
-                    })
-
-    # =========================
     # ADDRESS
-    # =========================
-    if parsed.get("address"):
-        order["address"] = parsed["address"]
-
-    if not order["address"]:
-        if any(word in user_msg_lower for word in ["shop", "room", "flat", "office", "sector"]):
-            order["address"] = user_msg
+    if address:
+        order["address"] = address
 
     # =========================
     # VALIDATION
     # =========================
     if not order["items"]:
-        return "❓ What would you like to order?"
+        return None  # IMPORTANT → let menu handle
 
     if not order["address"]:
         return "📍 Please share your delivery address."
 
     # =========================
-    # BUILD RESPONSE
+    # BUILD ORDER SUMMARY
     # =========================
     total = 0
-    text = "🧾 *Your Order*\n\n"
+    text = "🧾 Your Order\n\n"
 
     for item in order["items"]:
         name = item["name"]
