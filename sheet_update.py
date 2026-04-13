@@ -19,7 +19,7 @@ def connect_sheet():
     except Exception as e:
         raise Exception(f"❌ Invalid JSON in GOOGLE_CREDS_JSON: {str(e)}")
 
-    # 🔥 FIX PRIVATE KEY FORMAT (VERY IMPORTANT)
+    # 🔥 Fix private key formatting (critical)
     if "private_key" in creds_dict:
         creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
 
@@ -32,7 +32,9 @@ def connect_sheet():
 
     client = gspread.authorize(creds)
 
+    # 🔥 YOUR SHEET ID
     sheet = client.open_by_key("1HNU2ySZeqoSCZu3qHggLqGud4qbyPIlr12tj6xHNMnE")
+
     return sheet.worksheet("ORDER")
 
 
@@ -53,7 +55,7 @@ def save_order_to_sheet(order_id, order, user_number, menu, payment_mode="COD", 
 
         price = 0
 
-        # Fetch price from menu
+        # Get price from menu
         for category in menu.values():
             for item in category:
                 if item["item"].lower() == name.lower():
@@ -76,14 +78,14 @@ def save_order_to_sheet(order_id, order, user_number, menu, payment_mode="COD", 
 
         rows.append(row)
 
-    # Bulk insert rows
+    # Bulk insert (fast + efficient)
     sheet.append_rows(rows)
 
     return True
 
 
 # =========================
-# OPTIONAL TEST FUNCTION
+# TEST CONNECTION
 # =========================
 def test_connection():
     try:
