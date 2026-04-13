@@ -19,7 +19,8 @@ def root():
 async def whatsapp_webhook(request: Request):
     data = await request.form()
 
-    user_msg = data.get("Body", "").strip().lower()
+    user_msg = data.get("Body", "").strip()
+    user_msg_lower = user_msg.lower()
     user_number = data.get("From")
 
     menu = get_menu_data()
@@ -28,42 +29,39 @@ async def whatsapp_webhook(request: Request):
         user_sessions[user_number] = {}
 
     session = user_sessions[user_number]
-
-    # store number for sheet usage
     session["user_number"] = user_number
 
     categories = list(menu.keys())
 
     # =========================
-    # 🔥 GLOBAL COMMANDS
+    # 🔥 GLOBAL COMMANDS (TOP PRIORITY)
     # =========================
 
-    if user_msg in ["hi", "hello", "menu", "back", "show menu"]:
+    if user_msg_lower in ["hi", "hello", "menu", "back", "show menu"]:
         session.clear()
         session["user_number"] = user_number
 
         text, cats = format_categories(menu)
         session["categories"] = cats
-
         reply = text
 
-    elif user_msg == "all items":
+    elif user_msg_lower == "all items":
         reply = format_all_items(menu)
 
-    elif user_msg == "test sheet":
+    elif user_msg_lower == "test sheet":
         reply = test_connection()
 
-    elif user_msg in [cat.lower() for cat in categories]:
-        selected_category = next(cat for cat in categories if cat.lower() == user_msg)
+    elif user_msg_lower in [cat.lower() for cat in categories]:
+        selected_category = next(cat for cat in categories if cat.lower() == user_msg_lower)
         reply = format_items(menu, selected_category)
 
     # =========================
-    # 🧠 ORDER FLOW
+    # 🧠 ORDER FLOW (ALWAYS RUN)
     # =========================
     else:
         order_reply = handle_order(user_msg, session, menu)
 
-        if order_reply and not order_reply.startswith("❓"):
+        if order_reply:
             reply = order_reply
         else:
             reply = "❌ Invalid option.\n\nType MENU to see options."
