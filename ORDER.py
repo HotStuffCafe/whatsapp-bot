@@ -2,16 +2,23 @@ import os
 import json
 import random
 from openai import OpenAI
+from sheet_update import save_order_to_sheet
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 ENABLE_PAYMENT = os.getenv("ENABLE_PAYMENT", "false").lower() == "true"
 
 
+# =========================
+# GENERATE ORDER ID
+# =========================
 def generate_order_id():
     return f"ORD{random.randint(1000,9999)}"
 
 
+# =========================
+# GET ALL MENU ITEMS
+# =========================
 def get_all_item_names(menu):
     items = []
     for category in menu.values():
@@ -20,6 +27,9 @@ def get_all_item_names(menu):
     return items
 
 
+# =========================
+# AI PARSER
+# =========================
 def parse_order_with_ai(message, menu_items):
     prompt = f"""
 Extract order details.
@@ -37,6 +47,10 @@ Return JSON:
   "address": "",
   "action": ""
 }}
+
+Rules:
+- Multiple items allowed
+- action = add/remove/none
 """
 
     response = client.chat.completions.create(
@@ -52,7 +66,7 @@ Return JSON:
 
 
 # =========================
-# 🛒 SHOW CART
+# SHOW CART
 # =========================
 def show_cart(session, menu):
     if "order" not in session or not session["order"]["items"]:
@@ -87,20 +101,20 @@ def show_cart(session, menu):
 
 
 # =========================
-# MAIN HANDLER
+# MAIN ORDER HANDLER
 # =========================
 def handle_order(user_msg, session, menu):
 
     user_msg_lower = user_msg.lower()
 
     # =========================
-    # 🛒 CART COMMANDS
+    # CART COMMANDS
     # =========================
     if user_msg_lower in ["cart", "order", "show cart", "show order", "kart"]:
         return show_cart(session, menu)
 
     # =========================
-    # ✅ CONFIRM
+    # CONFIRM ORDER
     # =========================
     if user_msg_lower == "yes":
         if "order" not in session or not session["order"]["items"]:
@@ -111,6 +125,8 @@ def handle_order(user_msg, session, menu):
 
         # PAYMENT FLOW
         if ENABLE_PAYMENT:
+            session["pending_order_id"] = order_id
+
             return f"""
 🧾 Order ID: {order_id}
 
@@ -123,8 +139,18 @@ Your order has been received, kindly make payment to confirm your order.
 Reply with UPI or COD
 """
 
-        # NO PAYMENT FLOW
+        # NO PAYMENT FLOW → SAVE DIRECTLY
+        save_order_to_sheet(
+            order_id,
+            order,
+            session.get("user_number"),
+            menu,
+            payment_mode="COD",
+            payment_status="na"
+        )
+
         session.clear()
+
         return f"""
 🎉 Order Confirmed!
 
@@ -134,7 +160,7 @@ Your order has been received.
 """
 
     # =========================
-    # ❌ CANCEL
+    # CANCEL ORDER
     # =========================
     if user_msg_lower == "no":
         session.clear()
@@ -146,18 +172,27 @@ Your order has been received.
     if user_msg_lower in ["menu", "back", "hi", "hello", "all items"]:
         return "❓"
 
+    # =========================
+    # INIT ORDER
+    # =========================
     if "order" not in session:
-        session["order"] = {"items": [], "address": None}
+        session["order"] = {
+            "items": [],
+            "address": None
+        }
 
     order = session["order"]
 
+    # =========================
+    # AI PARSE
+    # =========================
     menu_items = get_all_item_names(menu)
     parsed = parse_order_with_ai(user_msg, menu_items)
 
     action = parsed.get("action", "add")
 
     # =========================
-    # ADD / REMOVE
+    # ADD / REMOVE ITEMS
     # =========================
     if parsed.get("items"):
         for new_item in parsed["items"]:
@@ -183,7 +218,10 @@ Your order has been received.
                         break
 
                 if not found:
-                    order["items"].append({"name": name, "quantity": qty})
+                    order["items"].append({
+                        "name": name,
+                        "quantity": qty
+                    })
 
     # =========================
     # ADDRESS
@@ -192,7 +230,7 @@ Your order has been received.
         order["address"] = parsed["address"]
 
     if not order["address"]:
-        if any(w in user_msg_lower for w in ["shop", "room", "flat", "office", "sector"]):
+        if any(word in user_msg_lower for word in ["shop", "room", "flat", "office", "sector"]):
             order["address"] = user_msg
 
     # =========================
@@ -205,7 +243,7 @@ Your order has been received.
         return "📍 Please share your delivery address."
 
     # =========================
-    # RESPONSE
+    # BUILD RESPONSE
     # =========================
     total = 0
     text = "🧾 *Your Order*\n\n"
