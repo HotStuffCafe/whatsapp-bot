@@ -1,3 +1,5 @@
+import os
+import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
@@ -7,14 +9,26 @@ from datetime import datetime
 # CONNECT TO GOOGLE SHEET
 # =========================
 def connect_sheet():
+    creds_json = os.getenv("GOOGLE_CREDS_JSON")
+
+    if not creds_json:
+        raise Exception("❌ GOOGLE_CREDS_JSON not found in environment")
+
+    try:
+        creds_dict = json.loads(creds_json)
+    except Exception as e:
+        raise Exception(f"❌ Invalid JSON in GOOGLE_CREDS_JSON: {str(e)}")
+
+    # 🔥 FIX PRIVATE KEY FORMAT (VERY IMPORTANT)
+    if "private_key" in creds_dict:
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/drive"
     ]
 
-    creds = ServiceAccountCredentials.from_json_keyfile_name(
-        "service_account.json", scope
-    )
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 
     client = gspread.authorize(creds)
 
@@ -39,7 +53,7 @@ def save_order_to_sheet(order_id, order, user_number, menu, payment_mode="COD", 
 
         price = 0
 
-        # Get price from menu
+        # Fetch price from menu
         for category in menu.values():
             for item in category:
                 if item["item"].lower() == name.lower():
@@ -48,21 +62,33 @@ def save_order_to_sheet(order_id, order, user_number, menu, payment_mode="COD", 
         total = price * qty
 
         row = [
-            date,                  # Date
-            order_id,              # Order ID
-            user_number,           # Customer Mobile
-            name,                  # Item Name
-            qty,                   # Quantity
-            price,                 # Per item cost
-            total,                 # Total
-            order.get("address"),  # Address
-            payment_mode,          # Payment Mode
-            payment_status         # Payment Status
+            date,                   # Date
+            order_id,               # Order ID
+            user_number,            # Customer Mobile Number
+            name,                   # Item Name
+            qty,                    # Quantity
+            price,                  # Per item cost
+            total,                  # Total
+            order.get("address"),   # Address
+            payment_mode,           # Payment Mode
+            payment_status          # Payment Status
         ]
 
         rows.append(row)
 
-    # Bulk insert (faster)
+    # Bulk insert rows
     sheet.append_rows(rows)
 
     return True
+
+
+# =========================
+# OPTIONAL TEST FUNCTION
+# =========================
+def test_connection():
+    try:
+        sheet = connect_sheet()
+        sheet.append_row(["TEST", "CONNECTED"])
+        return "✅ Google Sheet Connected"
+    except Exception as e:
+        return f"❌ Error: {str(e)}"
