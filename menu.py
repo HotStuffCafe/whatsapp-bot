@@ -44,14 +44,14 @@ def get_menu_data():
 # =========================
 def format_categories(menu):
 
-    text = "📋 Menu Categories\n\n"
+    text = "📋 *Menu Categories*\n\n"
     categories = list(menu.keys())
 
     for i, cat in enumerate(categories, 1):
         text += f"{i}. {cat}\n"
 
-    text += "\n👉 Reply with number or category name"
-    text += "\n👉 To see all items, type all items"
+    text += "\n👉 Reply with *number* or *category name*"
+    text += "\n👉 To see all items, type *all items*"
 
     return text, categories
 
@@ -71,9 +71,9 @@ def format_items(menu, category):
     for i, item in enumerate(items, 1):
         text += f"{i}. {item['item']} - ₹{int(item['price'])}\n"
 
-    text += "\n👉 Type back or menu to go to main menu"
-    text += "\n👉 To see all items, type all items"
-    text += "\n👉 To order, type: add 2 chai, 1 cold coffee"
+    text += "\n👉 Type *back* or *menu* to go to main menu"
+    text += "\n👉 To see all items, type *all items*"
+    text += "\n👉 To order, type: *add* 2 chai, 1 cold coffee"
 
     return text
 
@@ -83,7 +83,7 @@ def format_items(menu, category):
 # =========================
 def format_all_items(menu):
 
-    text = "📦 All Menu Items\n\n"
+    text = "📦 *All Menu Items*\n\n"
 
     count = 1
 
@@ -92,7 +92,7 @@ def format_all_items(menu):
             text += f"{count}. {category} | {item['item']} | ₹{int(item['price'])}\n"
             count += 1
 
-    text += "\n👉 Type menu to go back"
-    text += "\n👉 To order, type: add 2 chai, 1 cold coffee"
+    text += "\n👉 Type *menu* to go back"
+    text += "\n👉 To order, type: *add* 2 chai, 1 cold coffee"
 
     return text
