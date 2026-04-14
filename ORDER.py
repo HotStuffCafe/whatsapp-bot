@@ -130,12 +130,14 @@ def build_summary(order, menu):
 
         text += f"{name} x {qty} = ₹{item_total}\n"
 
-    text += f"\n💰 Total: ₹{total}"
+    text += f"\n💰 *Total*: ₹{total}"
 
     if order.get("address"):
         text += f"\n📍 Address: {order['address']}"
 
-    text += "\n\n✅ Reply YES to confirm or NO to cancel"
+    text += "\n\n👉 To add items: *add* 2 chai, 1 cold coffee"
+    text += "\n👉 To remove items: *remove* 2 chai, 1 cold coffee"
+    text += "\n\n✅ Reply *YES* to confirm or *NO* to clear your order"
 
     return text
 
