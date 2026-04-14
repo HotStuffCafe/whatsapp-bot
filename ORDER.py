@@ -1,45 +1,78 @@
 import os
-import random
 import re
+from datetime import datetime
 from sheet_update import save_order_to_sheet
 
 ENABLE_PAYMENT = os.getenv("ENABLE_PAYMENT", "false").lower() == "true"
 
 
 # =========================
-# ORDER ID
+# ORDER ID (WITH SECONDS)
 # =========================
 def generate_order_id():
-    return f"ORD{random.randint(1000,9999)}"
+    now = datetime.now()
+
+    return "ORD" + now.strftime("%d%m%y%H%M%S")
+
+
+# =========================
+# SMART MATCH (FIXES CHAI ISSUE)
+# =========================
+def match_item(user_text, menu):
+
+    user_text = user_text.lower().strip()
+    matched_items = []
+
+    for category in menu.values():
+        for item in category:
+            item_name = item["item"].lower()
+
+            # Exact phrase match
+            if item_name in user_text:
+                matched_items.append(item)
+
+    # Remove overlaps (chai vs cutting chai)
+    final_items = []
+
+    for item in matched_items:
+        name = item["item"].lower()
+
+        if not any(
+            name != other["item"].lower() and name in other["item"].lower()
+            for other in matched_items
+        ):
+            final_items.append(item)
+
+    return final_items
 
 
 # =========================
 # EXTRACT ITEMS (MULTI SUPPORT)
 # =========================
 def extract_items(message, menu):
+
     message = message.lower()
+    items = []
 
-    items_found = []
-
-    # Pattern: "2 chai", "3 pizza"
+    # matches: "2 chai", "1 cold coffee"
     matches = re.findall(r'(\d+)\s*([a-zA-Z ]+)', message)
 
-    for qty, name in matches:
+    for qty, text in matches:
         qty = int(qty)
 
-        for category in menu.values():
-            for item in category:
-                if name.strip() in item["item"].lower():
-                    items_found.append({
-                        "name": item["item"],
-                        "quantity": qty
-                    })
+        matched = match_item(text, menu)
 
-    return items_found
+        for item in matched:
+            items.append({
+                "name": item["item"],
+                "quantity": qty
+            })
+
+    return items
 
 
 # =========================
-# DETECT ADDRESS
+# ADDRESS DETECTION
 # =========================
 def extract_address(message):
     if any(word in message.lower() for word in ["shop", "room", "flat", "office"]):
@@ -48,26 +81,26 @@ def extract_address(message):
 
 
 # =========================
-# APPLY ADD / REMOVE
+# UPDATE ORDER (ADD / REMOVE)
 # =========================
-def update_order(order, new_items, action="add"):
+def update_order(order, items, action):
 
-    for new_item in new_items:
-        name = new_item["name"]
-        qty = new_item["quantity"]
-
+    for new_item in items:
         found = False
 
         for item in order["items"]:
-            if item["name"].lower() == name.lower():
+            if item["name"].lower() == new_item["name"].lower():
                 found = True
 
                 if action == "add":
-                    item["quantity"] += qty
+                    item["quantity"] += new_item["quantity"]
+
                 elif action == "remove":
-                    item["quantity"] -= qty
+                    item["quantity"] -= new_item["quantity"]
+
                     if item["quantity"] <= 0:
                         order["items"].remove(item)
+
                 break
 
         if not found and action == "add":
@@ -75,9 +108,10 @@ def update_order(order, new_items, action="add"):
 
 
 # =========================
-# BUILD SUMMARY
+# BUILD ORDER SUMMARY
 # =========================
 def build_summary(order, menu):
+
     total = 0
     text = "🧾 Your Order\n\n"
 
@@ -107,19 +141,14 @@ def build_summary(order, menu):
 
 
 # =========================
-# MAIN HANDLER
+# MAIN ORDER HANDLER
 # =========================
 def handle_order(user_msg, session, menu):
 
     msg = user_msg.lower()
 
-    # INIT ORDER
     if "order" not in session:
-        session["order"] = {
-            "items": [],
-            "address": None,
-            "confirmed": False
-        }
+        session["order"] = {"items": [], "address": None}
 
     order = session["order"]
 
@@ -132,7 +161,7 @@ def handle_order(user_msg, session, menu):
         return build_summary(order, menu)
 
     # =========================
-    # YES / NO FLOW
+    # YES (CONFIRM ORDER)
     # =========================
     if msg == "yes":
 
@@ -141,7 +170,7 @@ def handle_order(user_msg, session, menu):
 
         order_id = generate_order_id()
 
-        # SAVE TO SHEET
+        # SAVE TO GOOGLE SHEET
         save_order_to_sheet(
             order_id=order_id,
             order=order,
@@ -154,12 +183,21 @@ def handle_order(user_msg, session, menu):
         # RESET SESSION
         session["order"] = {"items": [], "address": None}
 
-        return f"""✅ Your order has been received!
+        # PAYMENT TOGGLE
+        if ENABLE_PAYMENT:
+            return f"""✅ Your order has been received!
 
 🆔 Order ID: {order_id}
 
-💰 Kindly make payment to confirm your order"""
+💳 Kindly make payment to confirm your order"""
+        else:
+            return f"""✅ Your order has been received!
 
+🆔 Order ID: {order_id}"""
+
+    # =========================
+    # NO (CANCEL)
+    # =========================
     if msg == "no":
         session["order"] = {"items": [], "address": None}
         return "❌ Order cancelled."
@@ -168,12 +206,11 @@ def handle_order(user_msg, session, menu):
     # DETECT ACTION
     # =========================
     action = "add"
-
     if "remove" in msg:
         action = "remove"
 
     # =========================
-    # EXTRACT DATA
+    # PARSE MESSAGE
     # =========================
     items = extract_items(user_msg, menu)
     address = extract_address(user_msg)
