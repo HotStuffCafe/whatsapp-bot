@@ -3,6 +3,7 @@ from fastapi.responses import Response
 
 from menu import get_menu_data, format_categories, format_items, format_all_items
 from ORDER import handle_order
+from payment import handle_payment
 from sheet_update import test_connection
 
 app = FastAPI()
@@ -25,6 +26,9 @@ async def whatsapp_webhook(request: Request):
 
     menu = get_menu_data()
 
+    # =========================
+    # SESSION INIT
+    # =========================
     if user_number not in user_sessions:
         user_sessions[user_number] = {}
 
@@ -34,9 +38,8 @@ async def whatsapp_webhook(request: Request):
     categories = list(menu.keys())
 
     # =========================
-    # 🔥 GLOBAL COMMANDS (TOP PRIORITY)
+    # 🔥 GLOBAL COMMANDS (HIGHEST PRIORITY)
     # =========================
-
     if user_msg_lower in ["hi", "hello", "menu", "back", "show menu"]:
         session.clear()
         session["user_number"] = user_number
@@ -56,15 +59,24 @@ async def whatsapp_webhook(request: Request):
         reply = format_items(menu, selected_category)
 
     # =========================
-    # 🧠 ORDER FLOW (ALWAYS RUN)
+    # 💳 PAYMENT FLOW (SECOND PRIORITY)
     # =========================
     else:
-        order_reply = handle_order(user_msg, session, menu)
+        payment_reply = handle_payment(user_msg, session, menu)
 
-        if order_reply:
-            reply = order_reply
+        if payment_reply:
+            reply = payment_reply
+
+        # =========================
+        # 🧠 ORDER FLOW (FINAL)
+        # =========================
         else:
-            reply = "❌ Invalid option.\n\nType MENU to see options."
+            order_reply = handle_order(user_msg, session, menu)
+
+            if order_reply:
+                reply = order_reply
+            else:
+                reply = "❌ Invalid option.\n\nType MENU to see options."
 
     # =========================
     # RESPONSE
