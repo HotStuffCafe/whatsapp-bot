@@ -1,11 +1,5 @@
-import razorpay
 import os
 from sheet_update import save_order_to_sheet
-
-client = razorpay.Client(auth=(
-    os.getenv("RAZORPAY_KEY_ID"),
-    os.getenv("RAZORPAY_KEY_SECRET")
-))
 
 
 # =========================
@@ -28,28 +22,14 @@ def calculate_total(order, menu):
 
 
 # =========================
-# CREATE PAYMENT LINK
+# GENERATE UPI LINK
 # =========================
-def create_payment_link(amount, user_number, order_id):
+def generate_upi_link(amount):
 
-    data = {
-        "amount": int(amount * 100),  # in paisa
-        "currency": "INR",
-        "accept_partial": False,
-        "description": f"Order {order_id}",
-        "customer": {
-            "contact": user_number.replace("whatsapp:", "")
-        },
-        "notify": {
-            "sms": True,
-            "email": False
-        },
-        "reminder_enable": True
-    }
+    upi_id = "vyapar.175692980981@hdfcbank"
+    name = "HOT%20STUFF"
 
-    link = client.payment_link.create(data)
-
-    return link["short_url"]
+    return f"upi://pay?pa={upi_id}&pn={name}&am={amount}&cu=INR"
 
 
 # =========================
@@ -66,49 +46,23 @@ def handle_payment(user_msg, session, menu):
     order_id = session.get("order_id")
 
     # =========================
-    # PAYMENT LINK FLOW
+    # SEND PAYMENT LINK
     # =========================
-    if msg == "upi":
+    if msg in ["upi", "pay", "payment"]:
 
         total_amount = calculate_total(order, menu)
 
-        payment_link = create_payment_link(
-            total_amount,
-            session.get("user_number"),
-            order_id
-        )
+        upi_link = generate_upi_link(total_amount)
 
         session["payment_mode"] = "UPI"
 
-        return f"""💳 Payment Link
+        return f"""💳 *UPI Payment*
 
-Pay here:
-{payment_link}
+Click below to pay:
 
-After payment, type *PAID*
-"""
+{upi_link}
 
-    # =========================
-    # COD FLOW
-    # =========================
-    if msg == "cod":
-
-        save_order_to_sheet(
-            order_id=order_id,
-            order=order,
-            user_number=session.get("user_number"),
-            menu=menu,
-            payment_mode="COD",
-            payment_status="na"
-        )
-
-        session.clear()
-
-        return f"""✅ Order Confirmed!
-
-🆔 Order ID: {order_id}
-
-💰 Payment Mode: COD
+👉 After payment, type *PAID*
 """
 
     # =========================
@@ -117,7 +71,7 @@ After payment, type *PAID*
     if msg == "paid":
 
         if session.get("payment_mode") != "UPI":
-            return "❌ Please choose UPI first."
+            return "❌ Please click payment link first."
 
         save_order_to_sheet(
             order_id=order_id,
@@ -130,10 +84,13 @@ After payment, type *PAID*
 
         session.clear()
 
-        return f"""✅ Payment Received!
+        return f"""✅ *Payment Received!*
 
 🆔 Order ID: {order_id}
 
 🎉 Your order is confirmed!"""
 
-    return "👉 Please choose payment method: *UPI* or *COD*"
+    # =========================
+    # FALLBACK MESSAGE
+    # =========================
+    return "👉 Please type *UPI* to make payment"
