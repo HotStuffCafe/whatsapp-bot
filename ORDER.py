@@ -165,38 +165,40 @@ def handle_order(user_msg, session, menu):
     # =========================
     # YES (CONFIRM ORDER)
     # =========================
-    if msg == "yes":
+   if msg == "yes":
 
-        if not order["items"] or not order["address"]:
-            return None
+    if not order["items"] or not order["address"]:
+        return None
 
-        order_id = generate_order_id()
+    order_id = generate_order_id()
 
-        # SAVE TO GOOGLE SHEET
-        save_order_to_sheet(
-            order_id=order_id,
-            order=order,
-            user_number=session.get("user_number"),
-            menu=menu,
-            payment_mode="COD",
-            payment_status="na"
-        )
+    if ENABLE_PAYMENT:
 
-        # RESET SESSION
-        session["order"] = {"items": [], "address": None}
+        session["order_id"] = order_id
+        session["awaiting_payment"] = True
 
-        # PAYMENT TOGGLE
-        if ENABLE_PAYMENT:
-            return f"""✅ Your order has been received!
+        return f"""🧾 Order ID: {order_id}
 
-🆔 Order ID: {order_id}
+Your order has been received.
 
-💳 Kindly make payment to confirm your order"""
-        else:
-            return f"""✅ Your order has been received!
+💳 To proceed with payment, type *UPI*
+"""
+
+    # payment disabled
+    save_order_to_sheet(
+        order_id=order_id,
+        order=order,
+        user_number=session.get("user_number"),
+        menu=menu,
+        payment_mode="COD",
+        payment_status="na"
+    )
+
+    session["order"] = {"items": [], "address": None}
+
+    return f"""✅ Your order has been received!
 
 🆔 Order ID: {order_id}"""
-
     # =========================
     # NO (CANCEL)
     # =========================
