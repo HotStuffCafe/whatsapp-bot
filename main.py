@@ -1,90 +1,101 @@
-# main.py
+from fastapi import FastAPI, Request
+from fastapi.responses import Response, JSONResponse
 
-from flask import Flask, request, jsonify
-import os
+from menu import get_menu_data, format_categories, format_items, format_all_items
+from ORDER import handle_order
+from payment import handle_payment, handle_payment_callback
+from sheet_update import test_connection
 
-app = Flask(__name__)
+app = FastAPI()
 
-
-# ================================
-# 🔥 EXISTING ROUTES (UNCHANGED)
-# ================================
-# Your WhatsApp webhook / bot logic remains exactly same
-# DO NOT TOUCH EXISTING MESSAGE HANDLER
+user_sessions = {}
 
 
-# ================================
-# 💳 PAYMENT WEBHOOK (NEW ADDITION)
-# ================================
-@app.route('/payment/callback', methods=['POST'])
-def payment_callback():
-    data = request.json
-
-    print("🔔 Razorpay Webhook Received:", data)
-
-    event = data.get("event")
-
-    try:
-        payment = data["payload"]["payment"]["entity"]
-
-        razorpay_payment_id = payment.get("id")
-        order_id = payment.get("notes", {}).get("order_id")
-
-        if not order_id:
-            print("❌ No order_id found in webhook")
-            return jsonify({"status": "ignored"})
-
-        if event == "payment.captured":
-            print(f"✅ Payment SUCCESS for order {order_id}")
-
-            update_order_status(order_id, "CONFIRMED")
-
-            phone = get_user_phone(order_id)
-
-            send_whatsapp_message(
-                phone,
-                "✅ Payment received! Your order is confirmed and being prepared."
-            )
-
-        elif event == "payment.failed":
-            print(f"❌ Payment FAILED for order {order_id}")
-
-            update_order_status(order_id, "FAILED")
-
-            phone = get_user_phone(order_id)
-
-            send_whatsapp_message(
-                phone,
-                "❌ Payment failed. Please try again."
-            )
-
-    except Exception as e:
-        print("Webhook error:", str(e))
-
-    return jsonify({"status": "ok"})
+@app.get("/")
+def root():
+    return {"status": "running"}
 
 
-# ================================
-# ⚠️ EXISTING FUNCTIONS (REUSE)
-# ================================
+# =========================
+# 📩 WHATSAPP WEBHOOK
+# =========================
+@app.post("/webhook")
+async def whatsapp_webhook(request: Request):
+    data = await request.form()
 
-def update_order_status(order_id, status):
-    # your existing implementation
-    pass
+    user_msg = data.get("Body", "").strip()
+    user_msg_lower = user_msg.lower()
+    user_number = data.get("From")
+
+    menu = get_menu_data()
+
+    if user_number not in user_sessions:
+        user_sessions[user_number] = {}
+
+    session = user_sessions[user_number]
+    session["user_number"] = user_number
+
+    categories = list(menu.keys())
+
+    # =========================
+    # 🔥 GLOBAL COMMANDS (TOP PRIORITY)
+    # =========================
+    if user_msg_lower in ["hi", "hello", "menu", "back", "show menu"]:
+        session.clear()
+        session["user_number"] = user_number
+
+        text, cats = format_categories(menu)
+        session["categories"] = cats
+        reply = text
+
+    elif user_msg_lower == "all items":
+        reply = format_all_items(menu)
+
+    elif user_msg_lower == "test sheet":
+        reply = test_connection()
+
+    elif user_msg_lower in [cat.lower() for cat in categories]:
+        selected_category = next(cat for cat in categories if cat.lower() == user_msg_lower)
+        reply = format_items(menu, selected_category)
+
+    # =========================
+    # 💳 PAYMENT FLOW (HIGH PRIORITY)
+    # =========================
+    else:
+        payment_reply = handle_payment(user_msg, session, menu)
+
+        if payment_reply:
+            reply = payment_reply
+
+        else:
+            # =========================
+            # 🧠 ORDER FLOW
+            # =========================
+            order_reply = handle_order(user_msg, session, menu)
+
+            if order_reply:
+                reply = order_reply
+            else:
+                reply = "❌ Invalid option.\n\nType MENU to see options."
+
+    # =========================
+    # 📤 RESPONSE TO TWILIO
+    # =========================
+    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Message>{reply}</Message>
+</Response>"""
+
+    return Response(content=twiml, media_type="application/xml")
 
 
-def get_user_phone(order_id):
-    # fetch from your DB / sheet
-    return "user_phone_here"
+# =========================
+# 🔔 RAZORPAY WEBHOOK
+# =========================
+@app.post("/payment/callback_uat1.1")
+async def payment_callback(request: Request):
+    data = await request.json()
 
+    result = handle_payment_callback(data)
 
-def send_whatsapp_message(phone, message):
-    # your existing Twilio / WhatsApp logic
-    pass
-
-
-# ================================
-# 🚀 RUN APP
-# ================================
-if __name__ == "__main__":
-    app.run(debug=True)
+    return JSONResponse(content={"status": result})
