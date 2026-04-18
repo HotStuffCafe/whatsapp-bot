@@ -6,31 +6,33 @@ client = razorpay.Client(auth=(
     os.getenv("RAZORPAY_KEY_SECRET")
 ))
 
-def create_payment_link(order_id, amount, customer_name, customer_phone):
-    try:
-        payment = client.payment_link.create({
-            "amount": int(amount * 100),
-            "currency": "INR",
-            "description": f"Order #{order_id}",
-            "customer": {
-                "name": customer_name,
-                "contact": customer_phone
-            },
-            "notify": {
-                "sms": True,
-                "email": False
-            },
-            "notes": {
-                "order_id": str(order_id)
-            },
 
-            # 🔥 NEW ADDITION
-            "callback_url": "https://whatsapp-bot-34e7.onrender.com/payment/redirect",
-            "callback_method": "get"
-        })
+def calculate_total(order, menu):
+    total = 0
+    for item in order["items"]:
+        for cat in menu.values():
+            for i in cat:
+                if i["item"].lower() == item["name"].lower():
+                    total += i["price"] * item["quantity"]
+    return total
 
-        return payment.get("short_url")
 
-    except Exception as e:
-        print("❌ Payment link error:", str(e))
-        return None
+def create_payment_link(order, menu, order_id, phone):
+
+    amount = calculate_total(order, menu)
+
+    data = {
+        "amount": int(amount * 100),
+        "currency": "INR",
+        "description": f"Order {order_id}",
+        "customer": {
+            "contact": phone.replace("whatsapp:", "")
+        },
+        "notify": {"sms": True},
+        "callback_url": "https://whatsapp-bot-34e7.onrender.com/payment/callback_uat1.1",
+        "callback_method": "get"
+    }
+
+    link = client.payment_link.create(data)
+
+    return link["short_url"]
