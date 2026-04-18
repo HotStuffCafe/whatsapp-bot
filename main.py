@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import Response, JSONResponse
+import html
 
 from menu import get_menu_data, format_categories, format_items, format_all_items
 from ORDER import handle_order
@@ -23,9 +24,12 @@ def root():
 async def whatsapp_webhook(request: Request):
     data = await request.form()
 
-    user_msg = data.get("Body", "").strip()
+    user_msg = (data.get("Body") or "").strip()
     user_msg_lower = user_msg.lower()
     user_number = data.get("From")
+
+    if not user_number:
+        return Response(content="OK", media_type="text/plain")
 
     menu = get_menu_data()
 
@@ -38,7 +42,7 @@ async def whatsapp_webhook(request: Request):
     categories = list(menu.keys())
 
     # =========================
-    # 🔥 GLOBAL COMMANDS (TOP PRIORITY)
+    # 🔥 GLOBAL COMMANDS
     # =========================
     if user_msg_lower in ["hi", "hello", "menu", "back", "show menu"]:
         session.clear()
@@ -59,18 +63,17 @@ async def whatsapp_webhook(request: Request):
         reply = format_items(menu, selected_category)
 
     # =========================
-    # 💳 PAYMENT FLOW (HIGH PRIORITY)
+    # 💳 PAYMENT → ORDER
     # =========================
     else:
+        # PAYMENT FIRST
         payment_reply = handle_payment(user_msg, session, menu)
 
         if payment_reply:
             reply = payment_reply
 
         else:
-            # =========================
-            # 🧠 ORDER FLOW
-            # =========================
+            # ORDER FALLBACK
             order_reply = handle_order(user_msg, session, menu)
 
             if order_reply:
@@ -79,11 +82,13 @@ async def whatsapp_webhook(request: Request):
                 reply = "❌ Invalid option.\n\nType MENU to see options."
 
     # =========================
-    # 📤 RESPONSE TO TWILIO
+    # 🛡️ SAFE XML RESPONSE
     # =========================
+    safe_reply = html.escape(reply)
+
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Message>{reply}</Message>
+    <Message>{safe_reply}</Message>
 </Response>"""
 
     return Response(content=twiml, media_type="application/xml")
