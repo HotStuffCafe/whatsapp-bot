@@ -9,7 +9,7 @@ client = razorpay.Client(auth=(
 def create_payment_link(order_id, amount, customer_name, customer_phone):
     try:
         payment = client.payment_link.create({
-            "amount": int(amount * 100),  # convert to paise
+            "amount": int(amount * 100),
             "currency": "INR",
             "description": f"Order #{order_id}",
             "customer": {
@@ -21,12 +21,16 @@ def create_payment_link(order_id, amount, customer_name, customer_phone):
                 "email": False
             },
             "notes": {
-                "order_id": order_id
-            }
+                "order_id": str(order_id)
+            },
+
+            # 🔥 NEW ADDITION
+            "callback_url": "https://whatsapp-bot-34e7.onrender.com/payment/redirect",
+            "callback_method": "get"
         })
 
-        return payment["short_url"]
+        return payment.get("short_url")
 
     except Exception as e:
-        print("Payment link error:", str(e))
+        print("❌ Payment link error:", str(e))
         return None
