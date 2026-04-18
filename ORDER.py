@@ -1,16 +1,89 @@
 import re
 import os
 from datetime import datetime
-from sheet_update import save_order_to_sheet
-
-# Temporary order storage (for webhook future use)
-order_store = {}
-
-PAYMENT_MODE = os.getenv("PAYMENT_MODE", "OFF")
+from sheet_update import update_google_sheet
+from payment import create_payment_link
 
 
 # =========================
-# 🧾 GENERATE ORDER ID
+# 🧠 SMART ORDER PARSER
+# =========================
+def smart_parse_order(message, menu):
+    message = message.lower()
+
+    cart = {}
+    address = None
+
+    # Extract address
+    address_match = re.search(r"(shop\s*\d+|room\s*\d+|flat\s*\d+|house\s*\d+)", message)
+    if address_match:
+        address = address_match.group(0)
+
+    # Match items (LONGEST NAME FIRST → avoids chai vs cutting chai issue)
+    all_items = []
+    for category in menu:
+        for item in menu[category]:
+            all_items.append(item["name"])
+
+    all_items = sorted(all_items, key=lambda x: len(x), reverse=True)
+
+    for item_name in all_items:
+        pattern = rf"(\d+)\s*{item_name.lower()}"
+        match = re.search(pattern, message)
+
+        if match:
+            qty = int(match.group(1))
+            cart[item_name] = cart.get(item_name, 0) + qty
+
+    return cart, address
+
+
+# =========================
+# 🧾 ORDER SUMMARY
+# =========================
+def generate_order_summary(session, menu):
+    cart = session.get("cart", {})
+    address = session.get("address")
+
+    if not cart:
+        return "🛒 Your cart is empty."
+
+    total = 0
+    lines = ["🧾 Your Order\n"]
+
+    for item_name, qty in cart.items():
+        price = get_item_price(menu, item_name)
+        item_total = price * qty
+        total += item_total
+        lines.append(f"{item_name} x {qty} = ₹{item_total}")
+
+    lines.append(f"\n💰 Total: ₹{total}")
+
+    if address:
+        lines.append(f"📍 Address: {address}")
+
+    lines.append("\n👉 To add items: *add 2 chai, 1 cold coffee*")
+    lines.append("👉 To remove items: *remove 2 chai*")
+    lines.append("\n✅ Reply *YES* to confirm or *NO* to clear order")
+
+    session["total"] = total
+
+    return "\n".join(lines)
+
+
+# =========================
+# 🔍 GET ITEM PRICE
+# =========================
+def get_item_price(menu, item_name):
+    for category in menu:
+        for item in menu[category]:
+            if item["name"].lower() == item_name.lower():
+                return item["price"]
+    return 0
+
+
+# =========================
+# 🆔 ORDER ID GENERATOR
 # =========================
 def generate_order_id():
     now = datetime.now()
@@ -18,208 +91,83 @@ def generate_order_id():
 
 
 # =========================
-# 🔍 FIND ITEM EXACT MATCH
-# =========================
-def find_item(menu, item_name):
-    item_name = item_name.lower().strip()
-
-    for category in menu.values():
-        for item in category:
-            if item["item"].lower() == item_name:
-                return item
-
-    return None
-
-
-# =========================
-# 🧠 PARSE ORDER TEXT
-# =========================
-def parse_order_text(text):
-    text = text.lower()
-
-    # supports: "2 chai, 1 cold coffee"
-    parts = re.split(r",|\n", text)
-
-    parsed = []
-
-    for part in parts:
-        match = re.search(r"(\d+)\s+(.+)", part.strip())
-        if match:
-            qty = int(match.group(1))
-            name = match.group(2).strip()
-            parsed.append((name, qty))
-
-    return parsed
-
-
-# =========================
-# ➕ ADD ITEMS
-# =========================
-def add_items(order, parsed_items, menu):
-    for name, qty in parsed_items:
-
-        item = find_item(menu, name)
-
-        if not item:
-            continue
-
-        existing = next((i for i in order["items"] if i["name"] == item["item"]), None)
-
-        if existing:
-            existing["quantity"] += qty
-        else:
-            order["items"].append({
-                "name": item["item"],
-                "quantity": qty
-            })
-
-
-# =========================
-# ➖ REMOVE ITEMS
-# =========================
-def remove_items(order, parsed_items, menu):
-    for name, qty in parsed_items:
-
-        item = find_item(menu, name)
-
-        if not item:
-            continue
-
-        existing = next((i for i in order["items"] if i["name"] == item["item"]), None)
-
-        if existing:
-            existing["quantity"] -= qty
-
-            if existing["quantity"] <= 0:
-                order["items"].remove(existing)
-
-
-# =========================
-# 🧾 CALCULATE TOTAL
-# =========================
-def calculate_total(order, menu):
-    total = 0
-
-    for item in order["items"]:
-        for category in menu.values():
-            for m in category:
-                if m["item"] == item["name"]:
-                    total += m["price"] * item["quantity"]
-
-    return total
-
-
-# =========================
-# 🧾 FORMAT CART
-# =========================
-def format_order(order, menu):
-
-    if not order["items"]:
-        return "🛒 Your cart is empty."
-
-    text = "🧾 *Your Order*\n\n"
-
-    for item in order["items"]:
-        for category in menu.values():
-            for m in category:
-                if m["item"] == item["name"]:
-                    price = m["price"]
-                    total = price * item["quantity"]
-                    text += f"{item['name']} x {item['quantity']} = ₹{int(total)}\n"
-
-    total_amt = calculate_total(order, menu)
-
-    text += f"\n💰 *Total:* ₹{int(total_amt)}"
-
-    if order.get("address"):
-        text += f"\n📍 Address: {order['address']}"
-
-    text += """
-
-👉 To add items: *add 2 chai, 1 cold coffee*
-👉 To remove items: *remove 2 chai*
-
-✅ Reply *YES* to confirm or *NO* to clear order
-"""
-
-    return text
-
-
-# =========================
 # 🧠 MAIN ORDER HANDLER
 # =========================
 def handle_order(user_msg, session, menu):
-
-    msg = user_msg.lower().strip()
-
-    if "order" not in session:
-        session["order"] = {
-            "items": [],
-            "address": None
-        }
-
-    order = session["order"]
+    user_msg_lower = user_msg.lower()
+    payment_mode = os.getenv("ENABLE_PAYMENT", "false").lower()
 
     # =========================
-    # 🛒 SHOW ORDER
+    # INIT SESSION
     # =========================
-    if msg in ["order", "cart", "show order", "show cart"]:
-        return format_order(order, menu)
+    if "cart" not in session:
+        session["cart"] = {}
 
     # =========================
-    # ➕ ADD
+    # 🧠 ADD ITEMS
     # =========================
-    if msg.startswith("add"):
-        parsed = parse_order_text(msg.replace("add", ""))
-        add_items(order, parsed, menu)
-        return format_order(order, menu)
+    if user_msg_lower.startswith("add"):
+        parsed_cart, parsed_address = smart_parse_order(user_msg, menu)
+
+        for item, qty in parsed_cart.items():
+            session["cart"][item] = session["cart"].get(item, 0) + qty
+
+        if parsed_address:
+            session["address"] = parsed_address
+
+        return generate_order_summary(session, menu)
 
     # =========================
-    # ➖ REMOVE
+    # ❌ REMOVE ITEMS
     # =========================
-    if msg.startswith("remove"):
-        parsed = parse_order_text(msg.replace("remove", ""))
-        remove_items(order, parsed, menu)
-        return format_order(order, menu)
+    elif user_msg_lower.startswith("remove"):
+        parsed_cart, _ = smart_parse_order(user_msg, menu)
+
+        for item, qty in parsed_cart.items():
+            if item in session["cart"]:
+                session["cart"][item] -= qty
+                if session["cart"][item] <= 0:
+                    del session["cart"][item]
+
+        return generate_order_summary(session, menu)
 
     # =========================
-    # 📍 ADDRESS DETECTION
+    # 🧠 DIRECT ORDER (NO ADD)
     # =========================
-    if "shop" in msg or "road" in msg or "street" in msg:
-        order["address"] = user_msg
-        return format_order(order, menu)
+    parsed_cart, parsed_address = smart_parse_order(user_msg, menu)
+
+    if parsed_cart:
+        for item, qty in parsed_cart.items():
+            session["cart"][item] = session["cart"].get(item, 0) + qty
+
+        if parsed_address:
+            session["address"] = parsed_address
+
+        return generate_order_summary(session, menu)
 
     # =========================
-    # 🧾 DIRECT ORDER (NO ADD WORD)
+    # 📍 ADDRESS INPUT
     # =========================
-    parsed = parse_order_text(msg)
-
-    if parsed:
-        add_items(order, parsed, menu)
-        return format_order(order, menu)
+    if any(word in user_msg_lower for word in ["shop", "room", "flat", "house"]):
+        session["address"] = user_msg
+        return generate_order_summary(session, menu)
 
     # =========================
     # ✅ CONFIRM ORDER
     # =========================
-    if msg == "yes":
+    elif user_msg_lower in ["yes", "y", "yeah", "yea", "ok", "confirm"]:
 
-        if not order["items"] or not order["address"]:
+        if not session.get("cart") or not session.get("address"):
             return "⚠️ Please complete your order (items + address)"
 
         order_id = generate_order_id()
-
-        # Save for webhook usage
-        order_store[order_id] = order
+        total = session.get("total", 0)
 
         # =========================
-        # 💵 PAYMENT MODE LOGIC
+        # MODE: NO PAYMENT
         # =========================
-
-        if PAYMENT_MODE == "OFF":
-
-            save_order_to_sheet(
-                order_id, order, session["user_number"], menu, "COD", "na"
-            )
+        if payment_mode == "false":
+            update_google_sheet(session, order_id, "COD", "Success")
 
             session.clear()
 
@@ -227,35 +175,66 @@ def handle_order(user_msg, session, menu):
 
 🆔 Order ID: {order_id}"""
 
-        elif PAYMENT_MODE == "RAZORPAY":
-
+        # =========================
+        # MODE: ONLINE PAYMENT ONLY
+        # =========================
+        elif payment_mode == "true":
             session["order_id"] = order_id
-            session["awaiting_payment"] = True
 
-            return f"""🧾 Order ID: {order_id}
+            link = create_payment_link(total, order_id, session.get("user_number"))
 
-💳 Payment required
+            if link:
+                return f"""🆔 Order ID: {order_id}
 
-👉 Type *PAY* to proceed"""
+💳 Pay here:
+{link}"""
+            else:
+                return "❌ Payment link failed. Try again."
 
-        elif PAYMENT_MODE == "PAYCOD":
-
+        # =========================
+        # MODE: PAY + COD
+        # =========================
+        elif payment_mode == "paycod":
             session["order_id"] = order_id
-            session["awaiting_payment"] = True
 
-            return f"""🧾 Order ID: {order_id}
+            return f"""🆔 Order ID: {order_id}
 
 Choose payment option:
-
-👉 *PAY* (Online)
-👉 *COD* (Cash on Delivery)
-"""
+👉 PAY (Online)
+👉 COD (Cash on Delivery)"""
 
     # =========================
-    # ❌ CANCEL ORDER
+    # 💳 HANDLE PAY / COD
     # =========================
-    if msg == "no":
+    elif user_msg_lower == "pay":
+        order_id = session.get("order_id")
+        total = session.get("total")
+
+        link = create_payment_link(total, order_id, session.get("user_number"))
+
+        if link:
+            return f"""💳 Pay here:
+{link}"""
+        else:
+            return "❌ Payment link failed. Try again."
+
+    elif user_msg_lower == "cod":
+        order_id = session.get("order_id")
+
+        update_google_sheet(session, order_id, "COD", "Success")
+
         session.clear()
-        return "❌ Order cancelled."
+
+        return f"""✅ Order Confirmed!
+
+🆔 Order ID: {order_id}
+💰 Payment Mode: COD"""
+
+    # =========================
+    # ❌ CLEAR ORDER
+    # =========================
+    elif user_msg_lower == "no":
+        session.clear()
+        return "🗑️ Order cancelled."
 
     return None
