@@ -30,7 +30,7 @@ def create_payment_link(order_id, amount, customer_phone):
         "notes": {
             "order_id": order_id
         },
-        "callback_url": "https://your-domain.onrender.com/payment/callback",
+        "callback_url": "https://whatsapp-bot-34e7.onrender.com/payment/callback_uat1.1",
         "callback_method": "get"
     }
 
