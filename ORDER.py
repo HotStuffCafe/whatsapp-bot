@@ -6,7 +6,7 @@ from payment import create_payment_link
 
 
 # =========================
-# 🧠 SMART ORDER PARSER
+# 🧠 SMART PARSER
 # =========================
 def smart_parse_order(message, menu):
     message = message.lower()
@@ -14,12 +14,12 @@ def smart_parse_order(message, menu):
     cart = {}
     address = None
 
-    # Extract address
+    # Address extraction
     address_match = re.search(r"(shop\s*\d+|room\s*\d+|flat\s*\d+|house\s*\d+)", message)
     if address_match:
         address = address_match.group(0)
 
-    # Match items (LONGEST NAME FIRST → avoids chai vs cutting chai issue)
+    # Match longest names first (fix chai issue)
     all_items = []
     for category in menu:
         for item in menu[category]:
@@ -39,7 +39,7 @@ def smart_parse_order(message, menu):
 
 
 # =========================
-# 🧾 ORDER SUMMARY
+# 🧾 SUMMARY
 # =========================
 def generate_order_summary(session, menu):
     cart = session.get("cart", {})
@@ -72,7 +72,7 @@ def generate_order_summary(session, menu):
 
 
 # =========================
-# 🔍 GET ITEM PRICE
+# 🔍 PRICE
 # =========================
 def get_item_price(menu, item_name):
     for category in menu:
@@ -83,7 +83,7 @@ def get_item_price(menu, item_name):
 
 
 # =========================
-# 🆔 ORDER ID GENERATOR
+# 🆔 ORDER ID
 # =========================
 def generate_order_id():
     now = datetime.now()
@@ -91,20 +91,17 @@ def generate_order_id():
 
 
 # =========================
-# 🧠 MAIN ORDER HANDLER
+# 🧠 HANDLE ORDER
 # =========================
 def handle_order(user_msg, session, menu):
     user_msg_lower = user_msg.lower()
     payment_mode = os.getenv("ENABLE_PAYMENT", "false").lower()
 
-    # =========================
-    # INIT SESSION
-    # =========================
     if "cart" not in session:
         session["cart"] = {}
 
     # =========================
-    # 🧠 ADD ITEMS
+    # ADD
     # =========================
     if user_msg_lower.startswith("add"):
         parsed_cart, parsed_address = smart_parse_order(user_msg, menu)
@@ -118,7 +115,7 @@ def handle_order(user_msg, session, menu):
         return generate_order_summary(session, menu)
 
     # =========================
-    # ❌ REMOVE ITEMS
+    # REMOVE
     # =========================
     elif user_msg_lower.startswith("remove"):
         parsed_cart, _ = smart_parse_order(user_msg, menu)
@@ -132,7 +129,7 @@ def handle_order(user_msg, session, menu):
         return generate_order_summary(session, menu)
 
     # =========================
-    # 🧠 DIRECT ORDER (NO ADD)
+    # DIRECT ORDER
     # =========================
     parsed_cart, parsed_address = smart_parse_order(user_msg, menu)
 
@@ -146,14 +143,14 @@ def handle_order(user_msg, session, menu):
         return generate_order_summary(session, menu)
 
     # =========================
-    # 📍 ADDRESS INPUT
+    # ADDRESS INPUT
     # =========================
     if any(word in user_msg_lower for word in ["shop", "room", "flat", "house"]):
         session["address"] = user_msg
         return generate_order_summary(session, menu)
 
     # =========================
-    # ✅ CONFIRM ORDER
+    # CONFIRM
     # =========================
     elif user_msg_lower in ["yes", "y", "yeah", "yea", "ok", "confirm"]:
 
@@ -163,21 +160,16 @@ def handle_order(user_msg, session, menu):
         order_id = generate_order_id()
         total = session.get("total", 0)
 
-        # =========================
-        # MODE: NO PAYMENT
-        # =========================
+        # NO PAYMENT
         if payment_mode == "false":
             update_google_sheet(session, order_id, "COD", "Success")
-
             session.clear()
 
             return f"""✅ Your order has been received!
 
 🆔 Order ID: {order_id}"""
 
-        # =========================
-        # MODE: ONLINE PAYMENT ONLY
-        # =========================
+        # ONLINE ONLY
         elif payment_mode == "true":
             session["order_id"] = order_id
 
@@ -191,9 +183,7 @@ def handle_order(user_msg, session, menu):
             else:
                 return "❌ Payment link failed. Try again."
 
-        # =========================
-        # MODE: PAY + COD
-        # =========================
+        # PAY + COD
         elif payment_mode == "paycod":
             session["order_id"] = order_id
 
@@ -204,7 +194,7 @@ Choose payment option:
 👉 COD (Cash on Delivery)"""
 
     # =========================
-    # 💳 HANDLE PAY / COD
+    # PAY
     # =========================
     elif user_msg_lower == "pay":
         order_id = session.get("order_id")
@@ -218,6 +208,9 @@ Choose payment option:
         else:
             return "❌ Payment link failed. Try again."
 
+    # =========================
+    # COD
+    # =========================
     elif user_msg_lower == "cod":
         order_id = session.get("order_id")
 
@@ -231,7 +224,7 @@ Choose payment option:
 💰 Payment Mode: COD"""
 
     # =========================
-    # ❌ CLEAR ORDER
+    # CANCEL
     # =========================
     elif user_msg_lower == "no":
         session.clear()
