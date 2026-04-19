@@ -1,96 +1,102 @@
 import os
 import json
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
+from google.oauth2.service_account import Credentials
 
 
 # =========================
-# CONNECT TO GOOGLE SHEET
+# 🔐 CONNECT TO GOOGLE SHEET
 # =========================
 def connect_sheet():
-    creds_json = os.getenv("GOOGLE_CREDS_JSON")
-
-    if not creds_json:
-        raise Exception("❌ GOOGLE_CREDS_JSON not found in environment")
-
     try:
+        creds_json = os.getenv("GOOGLE_CREDS_JSON")
+
+        if not creds_json:
+            print("❌ GOOGLE_CREDS_JSON not found")
+            return None
+
         creds_dict = json.loads(creds_json)
+
+        scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+
+        client = gspread.authorize(creds)
+
+        sheet = client.open("ORDER").sheet1
+
+        print("✅ Google Sheet Connected")
+
+        return sheet
+
     except Exception as e:
-        raise Exception(f"❌ Invalid JSON in GOOGLE_CREDS_JSON: {str(e)}")
-
-    # 🔥 Fix private key formatting (critical)
-    if "private_key" in creds_dict:
-        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
-
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ]
-
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-
-    client = gspread.authorize(creds)
-
-    # 🔥 YOUR SHEET ID
-    sheet = client.open_by_key("1HNU2ySZeqoSCZu3qHggLqGud4qbyPIlr12tj6xHNMnE")
-
-    return sheet.worksheet("ORDER")
+        print("❌ Sheet connection error:", str(e))
+        return None
 
 
 # =========================
-# SAVE ORDER (LINE-WISE)
+# 🧾 UPDATE ORDER IN SHEET
 # =========================
-def save_order_to_sheet(order_id, order, user_number, menu, payment_mode="COD", payment_status="na"):
-
+def update_google_sheet(session, order_id, payment_mode, payment_status):
     sheet = connect_sheet()
 
-    date = datetime.now().strftime("%d-%m-%Y")
+    if not sheet:
+        print("❌ Sheet not available")
+        return
 
-    rows = []
+    try:
+        cart = session.get("cart", {})
+        address = session.get("address", "")
+        phone = session.get("user_number", "")
 
-    for order_item in order["items"]:
-        name = order_item["name"]
-        qty = order_item["quantity"]
+        today = datetime.now().strftime("%d-%m-%Y")
 
-        price = 0
+        for item_name, qty in cart.items():
+            price = get_item_price(session.get("menu"), item_name)
+            total = price * qty
 
-        # Get price from menu
-        for category in menu.values():
-            for item in category:
-                if item["item"].lower() == name.lower():
-                    price = item["price"]
+            row = [
+                today,
+                order_id,
+                phone,
+                item_name,
+                qty,
+                price,
+                total,
+                address,
+                payment_mode,
+                payment_status
+            ]
 
-        total = price * qty
+            sheet.append_row(row)
 
-        row = [
-            date,                   # Date
-            order_id,               # Order ID
-            user_number,            # Customer Mobile Number
-            name,                   # Item Name
-            qty,                    # Quantity
-            price,                  # Per item cost
-            total,                  # Total
-            order.get("address"),   # Address
-            payment_mode,           # Payment Mode
-            payment_status          # Payment Status
-        ]
+        print("✅ Order pushed to sheet")
 
-        rows.append(row)
-
-    # Bulk insert (fast + efficient)
-    sheet.append_rows(rows)
-
-    return True
+    except Exception as e:
+        print("❌ Sheet update error:", str(e))
 
 
 # =========================
-# TEST CONNECTION
+# 🔍 GET PRICE
+# =========================
+def get_item_price(menu, item_name):
+    if not menu:
+        return 0
+
+    for category in menu:
+        for item in menu[category]:
+            if item["name"].lower() == item_name.lower():
+                return item["price"]
+    return 0
+
+
+# =========================
+# 🧪 TEST CONNECTION
 # =========================
 def test_connection():
-    try:
-        sheet = connect_sheet()
-        sheet.append_row(["TEST", "CONNECTED"])
+    sheet = connect_sheet()
+
+    if sheet:
         return "✅ Google Sheet Connected"
-    except Exception as e:
-        return f"❌ Error: {str(e)}"
+    else:
+        return "❌ Connection Failed"
