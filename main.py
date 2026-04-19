@@ -1,6 +1,5 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import Response, JSONResponse
-import html
 
 from menu import get_menu_data, format_categories, format_items, format_all_items
 from ORDER import handle_order
@@ -24,12 +23,9 @@ def root():
 async def whatsapp_webhook(request: Request):
     data = await request.form()
 
-    user_msg = (data.get("Body") or "").strip()
+    user_msg = data.get("Body", "").strip()
     user_msg_lower = user_msg.lower()
     user_number = data.get("From")
-
-    if not user_number:
-        return Response(content="OK", media_type="text/plain")
 
     menu = get_menu_data()
 
@@ -37,7 +33,10 @@ async def whatsapp_webhook(request: Request):
         user_sessions[user_number] = {}
 
     session = user_sessions[user_number]
+
+    # ✅ IMPORTANT FIX
     session["user_number"] = user_number
+    session["menu"] = menu   # 🔥 REQUIRED FOR SHEET PRICING
 
     categories = list(menu.keys())
 
@@ -47,6 +46,7 @@ async def whatsapp_webhook(request: Request):
     if user_msg_lower in ["hi", "hello", "menu", "back", "show menu"]:
         session.clear()
         session["user_number"] = user_number
+        session["menu"] = menu
 
         text, cats = format_categories(menu)
         session["categories"] = cats
@@ -63,17 +63,17 @@ async def whatsapp_webhook(request: Request):
         reply = format_items(menu, selected_category)
 
     # =========================
-    # 💳 PAYMENT → ORDER
+    # 💳 PAYMENT FLOW
     # =========================
     else:
-        # PAYMENT FIRST
         payment_reply = handle_payment(user_msg, session, menu)
 
         if payment_reply:
             reply = payment_reply
-
         else:
-            # ORDER FALLBACK
+            # =========================
+            # 🧠 ORDER FLOW
+            # =========================
             order_reply = handle_order(user_msg, session, menu)
 
             if order_reply:
@@ -82,20 +82,18 @@ async def whatsapp_webhook(request: Request):
                 reply = "❌ Invalid option.\n\nType MENU to see options."
 
     # =========================
-    # 🛡️ SAFE XML RESPONSE
+    # 📤 TWILIO RESPONSE
     # =========================
-    safe_reply = html.escape(reply)
-
     twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Message>{safe_reply}</Message>
+    <Message>{reply}</Message>
 </Response>"""
 
     return Response(content=twiml, media_type="application/xml")
 
 
 # =========================
-# 🔔 RAZORPAY WEBHOOK
+# 🔔 RAZORPAY CALLBACK
 # =========================
 @app.post("/payment/callback_uat1.1")
 async def payment_callback(request: Request):
