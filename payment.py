@@ -1,26 +1,28 @@
 import os
 import requests
-from sheet_update import save_order_to_sheet
-from ORDER import order_store
+from sheet_update import update_google_sheet
 
+
+# =========================
+# 🔑 ENV VARIABLES
+# =========================
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
 
-PAYMENT_MODE = os.getenv("PAYMENT_MODE", "OFF")
 
 # =========================
-# 💳 CREATE RAZORPAY PAYMENT LINK
+# 💳 CREATE PAYMENT LINK
 # =========================
-def create_payment_link(order_id, amount, customer_phone):
+def create_payment_link(amount, order_id, phone):
 
     url = "https://api.razorpay.com/v1/payment_links"
 
     payload = {
-        "amount": int(amount * 100),  # in paise
+        "amount": int(amount * 100),  # paisa
         "currency": "INR",
         "description": f"Order {order_id}",
         "customer": {
-            "contact": customer_phone
+            "contact": phone.replace("whatsapp:", "") if phone else ""
         },
         "notify": {
             "sms": True,
@@ -34,35 +36,28 @@ def create_payment_link(order_id, amount, customer_phone):
         "callback_method": "get"
     }
 
-    response = requests.post(
-        url,
-        json=payload,
-        auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
-    )
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            auth=(RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET)
+        )
 
-    if response.status_code == 200 or response.status_code == 201:
-        return response.json().get("short_url")
+        data = response.json()
 
-    return None
+        if "short_url" in data:
+            return data["short_url"]
+        else:
+            print("❌ Razorpay Error:", data)
+            return None
 
-
-# =========================
-# 🧾 CALCULATE TOTAL
-# =========================
-def calculate_total(order, menu):
-    total = 0
-
-    for item in order["items"]:
-        for category in menu.values():
-            for m in category:
-                if m["item"] == item["name"]:
-                    total += m["price"] * item["quantity"]
-
-    return total
+    except Exception as e:
+        print("❌ Payment Link Exception:", str(e))
+        return None
 
 
 # =========================
-# 💰 HANDLE PAYMENT FLOW
+# 💳 HANDLE PAYMENT FLOW
 # =========================
 def handle_payment(user_msg, session, menu):
 
@@ -72,47 +67,39 @@ def handle_payment(user_msg, session, menu):
         return None
 
     order_id = session.get("order_id")
-    order = order_store.get(order_id)
-
-    if not order:
-        return "❌ Order not found. Please place order again."
+    total = session.get("total")
 
     # =========================
-    # 💳 PAY FLOW
+    # 💳 PAY ONLINE
     # =========================
-    if msg == "pay":
+    if msg in ["pay", "upi"]:
 
-        total = calculate_total(order, menu)
-
-        payment_link = create_payment_link(
-            order_id,
+        link = create_payment_link(
             total,
-            session.get("user_number", "")
+            order_id,
+            session.get("user_number")
         )
 
-        if not payment_link:
+        if link:
+            return f"""💳 Payment Link
+
+Pay here:
+{link}
+
+👉 Complete payment to confirm order"""
+        else:
             return "❌ Payment link failed. Try again."
 
-        session["payment_link"] = payment_link
-
-        return f"""💳 Complete your payment:
-
-{payment_link}
-
-⚠️ After payment, you will receive confirmation."""
-
     # =========================
-    # 💵 COD FLOW
+    # 💵 COD OPTION
     # =========================
     if msg == "cod":
 
-        save_order_to_sheet(
+        update_google_sheet(
+            session,
             order_id,
-            order,
-            session["user_number"],
-            menu,
             "COD",
-            "Pending"
+            "Success"
         )
 
         session.clear()
@@ -120,48 +107,40 @@ def handle_payment(user_msg, session, menu):
         return f"""✅ Order Confirmed!
 
 🆔 Order ID: {order_id}
-
-💵 Payment Mode: COD"""
+💰 Payment Mode: COD"""
 
     return None
 
 
 # =========================
-# 🔔 WEBHOOK HANDLER (IMPORTANT)
+# 🔔 HANDLE WEBHOOK CALLBACK
 # =========================
 def handle_payment_callback(data):
 
     try:
         event = data.get("event")
 
+        # Only process successful payment
         if event != "payment_link.paid":
             return "ignored"
 
         payload = data.get("payload", {})
-        payment_entity = payload.get("payment_link", {}).get("entity", {})
+        entity = payload.get("payment_link", {}).get("entity", {})
 
-        order_id = payment_entity.get("notes", {}).get("order_id")
+        order_id = entity.get("notes", {}).get("order_id")
 
         if not order_id:
             return "no order id"
 
-        order = order_store.get(order_id)
+        print(f"✅ Payment Success for Order: {order_id}")
 
-        if not order:
-            return "order not found"
-
-        # Save to Google Sheet
-        save_order_to_sheet(
-            order_id,
-            order,
-            "",  # phone not available here
-            {},  # menu not needed here
-            "UPI",
-            "Success"
-        )
+        # ⚠️ IMPORTANT:
+        # We currently DON'T have session here
+        # So we only log success
+        # Next step → persistent storage (we’ll fix later)
 
         return "success"
 
     except Exception as e:
-        print("Webhook Error:", str(e))
+        print("❌ Webhook Error:", str(e))
         return "error"
