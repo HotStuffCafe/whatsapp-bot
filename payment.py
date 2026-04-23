@@ -8,6 +8,7 @@ from sheet_update import update_google_sheet
 # =========================
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
+ENABLE_PAYMENT = os.getenv("ENABLE_PAYMENT", "false").lower()
 
 
 # =========================
@@ -18,7 +19,7 @@ def create_payment_link(amount, order_id, phone):
     url = "https://api.razorpay.com/v1/payment_links"
 
     payload = {
-        "amount": int(amount * 100),  # paisa
+        "amount": int(amount * 100),  # convert to paisa
         "currency": "INR",
         "description": f"Order {order_id}",
         "customer": {
@@ -63,6 +64,7 @@ def handle_payment(user_msg, session, menu):
 
     msg = user_msg.lower().strip()
 
+    # Only act if waiting for payment
     if not session.get("awaiting_payment"):
         return None
 
@@ -70,7 +72,7 @@ def handle_payment(user_msg, session, menu):
     total = session.get("total")
 
     # =========================
-    # 💳 PAY ONLINE
+    # 💳 ONLINE PAYMENT
     # =========================
     if msg in ["pay", "upi"]:
 
@@ -86,34 +88,39 @@ def handle_payment(user_msg, session, menu):
 Pay here:
 {link}
 
-👉 Complete payment to confirm order"""
+👉 Complete payment to confirm your order"""
         else:
             return "❌ Payment link failed. Try again."
 
     # =========================
-    # 💵 COD OPTION
+    # 💵 COD FLOW (only if enabled)
     # =========================
     if msg == "cod":
 
-        update_google_sheet(
-            session,
-            order_id,
-            "COD",
-            "Success"
-        )
+        if ENABLE_PAYMENT == "paycod":
 
-        session.clear()
+            update_google_sheet(
+                session,
+                order_id,
+                "COD",
+                "Success"
+            )
 
-        return f"""✅ Order Confirmed!
+            session.clear()
+
+            return f"""✅ Order Confirmed!
 
 🆔 Order ID: {order_id}
 💰 Payment Mode: COD"""
+
+        else:
+            return "❌ COD not available. Please type PAY to continue."
 
     return None
 
 
 # =========================
-# 🔔 HANDLE WEBHOOK CALLBACK
+# 🔔 RAZORPAY WEBHOOK CALLBACK
 # =========================
 def handle_payment_callback(data):
 
@@ -132,12 +139,11 @@ def handle_payment_callback(data):
         if not order_id:
             return "no order id"
 
-        print(f"✅ Payment Success for Order: {order_id}")
+        print(f"✅ Payment SUCCESS for Order: {order_id}")
 
-        # ⚠️ IMPORTANT:
-        # We currently DON'T have session here
-        # So we only log success
-        # Next step → persistent storage (we’ll fix later)
+        # ⚠️ IMPORTANT LIMITATION:
+        # No session available here yet
+        # So only logging for now
 
         return "success"
 
