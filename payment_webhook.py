@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Request
-from sheet_update import save_order_to_sheet
 
 router = APIRouter()
 
