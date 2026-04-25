@@ -51,8 +51,9 @@ def update_google_sheet(session, order_id, payment_mode, payment_status):
 
         today = datetime.now().strftime("%d-%m-%Y")
 
-        for item_name, qty in cart.items():
-            price = get_item_price(session.get("menu"), item_name)
+        for item_name, data in cart.items():
+            qty = data.get("qty", 0)
+            price = data.get("price", get_item_price(session.get("menu"), item_name))
             total = price * qty
 
             row = [
@@ -85,7 +86,7 @@ def get_item_price(menu, item_name):
 
     for category in menu:
         for item in menu[category]:
-            if item["name"].lower() == item_name.lower():
+            if item["item"].lower() == item_name.lower():
                 return item["price"]
     return 0
 
