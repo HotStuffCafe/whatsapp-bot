@@ -1,7 +1,7 @@
 import re
-import os
 from datetime import datetime
 from sheet_update import update_google_sheet
+from payment import get_enable_payment_mode
 
 
 # =========================
@@ -64,6 +64,39 @@ def parse_order(text, menu):
     return items
 
 
+def parse_actions(text, menu):
+    actions = []
+    normalized = text.lower()
+
+    command_matches = list(re.finditer(r"\b(add|remove)\b", normalized))
+    if not command_matches:
+        return actions
+
+    for i, match in enumerate(command_matches):
+        action = match.group(1)
+        start = match.end()
+        end = command_matches[i + 1].start() if i + 1 < len(command_matches) else len(normalized)
+        chunk = normalized[start:end].strip()
+
+        chunk = chunk.replace("\n", ",")
+        chunk = chunk.replace(" and ", ",")
+        chunk = chunk.replace(".", ",")
+        chunk = chunk.replace(";", ",")
+
+        for part in [p.strip() for p in chunk.split(",") if p.strip()]:
+            item_match = re.match(r"(\d+)\s+(.*)", part)
+            if not item_match:
+                continue
+
+            qty = int(item_match.group(1))
+            name = item_match.group(2).strip()
+            item, price = find_item(menu, name)
+            if item:
+                actions.append((action, item, qty, price))
+
+    return actions
+
+
 # =========================
 # 🧾 BUILD CART MESSAGE
 # =========================
@@ -88,13 +121,14 @@ def build_cart(session):
 
     if session.get("address"):
         text += f"\n📍 Address: {session['address']}"
+        text += "\n\n✅ Reply YES to confirm or NO to clear order"
+    else:
+        text += "\n\n📍 Share address"
 
     text += """
 
 👉 To add items: *add 2 chai, 1 cold coffee*
 👉 To remove items: *remove 2 chai*
-
-✅ Reply YES to confirm or NO to clear order
 """
 
     session["total"] = total
@@ -112,39 +146,26 @@ def handle_order(user_msg, session, menu):
     if "cart" in msg or "order" in msg:
         return build_cart(session)
 
-    # =========================
-    # ➕ ADD ITEMS
-    # =========================
-    if msg.startswith("add "):
-        items = parse_order(msg, menu)
+    if re.search(r"\b(add|remove)\b", msg):
+        parsed_actions = parse_actions(user_msg, menu)
 
-        if not items:
+        if not parsed_actions:
             return "❌ Could not understand items."
 
         cart = session.setdefault("cart", {})
 
-        for item, qty, price in items:
-            if item in cart:
-                cart[item]["qty"] += qty
+        for action, item, qty, price in parsed_actions:
+            if action == "add":
+                if item in cart:
+                    cart[item]["qty"] += qty
+                else:
+                    cart[item] = {"qty": qty, "price": price}
             else:
-                cart[item] = {"qty": qty, "price": price}
+                if item in cart:
+                    cart[item]["qty"] -= qty
 
-        return build_cart(session)
-
-    # =========================
-    # ➖ REMOVE ITEMS
-    # =========================
-    if msg.startswith("remove "):
-        items = parse_order(msg, menu)
-
-        cart = session.get("cart", {})
-
-        for item, qty, _ in items:
-            if item in cart:
-                cart[item]["qty"] -= qty
-
-                if cart[item]["qty"] <= 0:
-                    del cart[item]
+                    if cart[item]["qty"] <= 0:
+                        del cart[item]
 
         return build_cart(session)
 
@@ -164,16 +185,16 @@ def handle_order(user_msg, session, menu):
             return "⚠️ Please add items before confirming your order."
 
         if not session.get("address"):
-            return "Hey unable to confimr your oder , please share *address* before confirming the order."
+            return "Hey unable to confirm your order, please share *address* before confirming the order."
 
-        payment_mode = os.getenv("ENABLE_PAYMENT", "false").lower()
+        enable_payment_mode = get_enable_payment_mode()
 
-        if payment_mode in ["payonly", "paycod"]:
+        if enable_payment_mode in ["payonly", "paycod"]:
             order_id = session.get("order_id") or generate_order_id()
             session["order_id"] = order_id
             session["awaiting_payment"] = True
 
-            if payment_mode == "paycod":
+            if enable_payment_mode == "paycod":
                 return f"""🧾 Order almost done!
 
 🆔 Order ID: {order_id}
