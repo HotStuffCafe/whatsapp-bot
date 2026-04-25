@@ -1,7 +1,7 @@
 import requests
 import os
 from copy import deepcopy
-from sheet_update import update_google_sheet
+from sheet_update import update_google_sheet, mark_order_payment_success
 
 
 # =========================
@@ -101,6 +101,17 @@ def handle_payment(user_msg, session, menu):
                 "payment_mode": "UPI",
                 "payment_status": "Pending"
             }
+
+            # Persist pending row so callback can update even after process restart
+            if session.get("pending_logged_order_id") != order_id:
+                update_google_sheet(
+                    session,
+                    order_id,
+                    "UPI",
+                    "Pending"
+                )
+                session["pending_logged_order_id"] = order_id
+
             return f"""💳 Payment Link
 
 Pay here:
@@ -139,6 +150,11 @@ Pay here:
 
 def finalize_paid_order(order_id):
     order_data = PENDING_PAYMENT_ORDERS.pop(order_id, None)
+
+    # First try updating existing pending rows in sheet
+    if mark_order_payment_success(order_id, "UPI"):
+        return "success"
+
     if not order_data:
         return "order_not_found"
 
