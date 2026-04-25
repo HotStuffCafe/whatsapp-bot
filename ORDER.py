@@ -1,7 +1,7 @@
 import re
+import os
 from datetime import datetime
 from sheet_update import update_google_sheet
-from payment import get_enable_payment_mode
 
 
 # =========================
@@ -10,6 +10,10 @@ from payment import get_enable_payment_mode
 def generate_order_id():
     now = datetime.now()
     return now.strftime("ORD%d%m%y%H%M%S")
+
+
+def get_enable_payment_mode():
+    return os.getenv("ENABLE_PAYMENT", "false").strip().lower()
 
 
 # =========================
