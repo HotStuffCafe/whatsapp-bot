@@ -58,6 +58,10 @@ async def whatsapp_webhook(request: Request):
     elif user_msg_lower == "test sheet":
         reply = test_connection()
 
+    elif user_msg.isdigit() and 1 <= int(user_msg) <= len(categories):
+        selected_category = categories[int(user_msg) - 1]
+        reply = format_items(menu, selected_category)
+
     elif user_msg_lower in [cat.lower() for cat in categories]:
         selected_category = next(cat for cat in categories if cat.lower() == user_msg_lower)
         reply = format_items(menu, selected_category)
