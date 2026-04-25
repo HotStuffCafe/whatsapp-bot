@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: whatsapp-bot
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn asgi:app --app-dir /opt/render/project/src --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENABLE_PAYMENT
+        value: paycod
+      - key: GOOGLE_CREDS_JSON
+        sync: false
+      - key: ORDER_SHEET_ID
+        sync: false
+      - key: ORDER_WORKSHEET
+        value: ORDER
+      - key: PAYLOAD_WORKSHEET
+        value: PAYLOAD
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_CALLBACK_URL
+        value: https://<your-domain>/payment/callback_uat1.1
+      - key: OPENAI_API_KEY
+        sync: false
