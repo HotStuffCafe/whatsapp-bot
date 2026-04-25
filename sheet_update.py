@@ -101,7 +101,7 @@ def update_google_sheet(session, order_id, payment_mode, payment_status):
         print("❌ Sheet update error:", str(e))
 
 
-def mark_order_payment_success(order_id, payment_mode="UPI"):
+def mark_order_payment_success(order_id, payment_mode=None):
     sheet = connect_sheet()
 
     if not sheet:
@@ -117,9 +117,11 @@ def mark_order_payment_success(order_id, payment_mode="UPI"):
                 continue
 
             row_order_id = row[1].strip()
-            row_payment_mode = row[8].strip().upper()
+            row_payment_mode = row[8].strip().upper() if len(row) > 8 else ""
+            mode_matches = True if payment_mode is None else row_payment_mode == payment_mode.upper()
 
-            if row_order_id == order_id and row_payment_mode == payment_mode.upper():
+            if row_order_id == order_id and mode_matches:
+                sheet.update_cell(i, 9, "UPI")
                 sheet.update_cell(i, 10, "Success")
                 updated += 1
 
