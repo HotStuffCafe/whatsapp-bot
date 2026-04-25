@@ -3,7 +3,7 @@ from fastapi.responses import Response, JSONResponse
 
 from menu import get_menu_data, format_categories, format_items, format_all_items
 from ORDER import handle_order
-from payment import handle_payment, handle_payment_callback
+from payment import handle_payment, handle_payment_callback, handle_payment_callback_query
 from sheet_update import test_connection
 
 app = FastAPI()
@@ -103,6 +103,16 @@ async def whatsapp_webhook(request: Request):
 # =========================
 # 🔔 RAZORPAY CALLBACK
 # =========================
+@app.get("/payment/callback_uat1.1")
+async def payment_callback_get(request: Request):
+    params = dict(request.query_params)
+    payment_id = params.get("razorpay_payment_id", "")
+
+    print("Razorpay GET callback:", params)
+    result = handle_payment_callback_query(params)
+    return JSONResponse(content={"status": result, "payment_id": payment_id})
+
+
 @app.post("/payment/callback_uat1.1")
 async def payment_callback(request: Request):
     data = await request.json()
