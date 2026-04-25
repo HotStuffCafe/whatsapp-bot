@@ -101,6 +101,36 @@ def update_google_sheet(session, order_id, payment_mode, payment_status):
         print("❌ Sheet update error:", str(e))
 
 
+def mark_order_payment_success(order_id, payment_mode="UPI"):
+    sheet = connect_sheet()
+
+    if not sheet:
+        print("❌ Sheet not available for payment status update")
+        return False
+
+    try:
+        rows = sheet.get_all_values()
+        updated = 0
+
+        for i, row in enumerate(rows[1:], start=2):  # skip header
+            if len(row) < 10:
+                continue
+
+            row_order_id = row[1].strip()
+            row_payment_mode = row[8].strip().upper()
+
+            if row_order_id == order_id and row_payment_mode == payment_mode.upper():
+                sheet.update_cell(i, 10, "Success")
+                updated += 1
+
+        print(f"✅ Updated payment status to Success for {updated} row(s) of order {order_id}")
+        return updated > 0
+
+    except Exception as e:
+        print("❌ Payment status update error:", str(e))
+        return False
+
+
 # =========================
 # 🔍 GET PRICE
 # =========================
