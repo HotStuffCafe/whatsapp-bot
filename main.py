@@ -21,69 +21,73 @@ def root():
 # =========================
 @app.post("/webhook")
 async def whatsapp_webhook(request: Request):
-    data = await request.form()
+    try:
+        data = await request.form()
 
-    user_msg = data.get("Body", "").strip()
-    user_msg_lower = user_msg.lower()
-    user_number = data.get("From")
+        user_msg = data.get("Body", "").strip()
+        user_msg_lower = user_msg.lower()
+        user_number = data.get("From")
 
-    menu = get_menu_data()
+        menu = get_menu_data()
 
-    if user_number not in user_sessions:
-        user_sessions[user_number] = {}
+        if user_number not in user_sessions:
+            user_sessions[user_number] = {}
 
-    session = user_sessions[user_number]
+        session = user_sessions[user_number]
 
-    # ✅ IMPORTANT FIX
-    session["user_number"] = user_number
-    session["menu"] = menu   # 🔥 REQUIRED FOR SHEET PRICING
-
-    categories = list(menu.keys())
-
-    # =========================
-    # 🔥 GLOBAL COMMANDS
-    # =========================
-    if user_msg_lower in ["hi", "hello", "menu", "back", "show menu"]:
-        session.clear()
+        # ✅ IMPORTANT FIX
         session["user_number"] = user_number
-        session["menu"] = menu
+        session["menu"] = menu   # 🔥 REQUIRED FOR SHEET PRICING
 
-        text, cats = format_categories(menu)
-        session["categories"] = cats
-        reply = text
+        categories = list(menu.keys())
 
-    elif user_msg_lower == "all items":
-        reply = format_all_items(menu)
+        # =========================
+        # 🔥 GLOBAL COMMANDS
+        # =========================
+        if user_msg_lower in ["hi", "hello", "menu", "back", "show menu"]:
+            session.clear()
+            session["user_number"] = user_number
+            session["menu"] = menu
 
-    elif user_msg_lower == "test sheet":
-        reply = test_connection()
+            text, cats = format_categories(menu)
+            session["categories"] = cats
+            reply = text
 
-    elif user_msg.isdigit() and 1 <= int(user_msg) <= len(categories):
-        selected_category = categories[int(user_msg) - 1]
-        reply = format_items(menu, selected_category)
+        elif user_msg_lower == "all items":
+            reply = format_all_items(menu)
 
-    elif user_msg_lower in [cat.lower() for cat in categories]:
-        selected_category = next(cat for cat in categories if cat.lower() == user_msg_lower)
-        reply = format_items(menu, selected_category)
+        elif user_msg_lower == "test sheet":
+            reply = test_connection()
 
-    # =========================
-    # 💳 PAYMENT FLOW
-    # =========================
-    else:
-        payment_reply = handle_payment(user_msg, session, menu)
+        elif user_msg.isdigit() and 1 <= int(user_msg) <= len(categories):
+            selected_category = categories[int(user_msg) - 1]
+            reply = format_items(menu, selected_category)
 
-        if payment_reply:
-            reply = payment_reply
+        elif user_msg_lower in [cat.lower() for cat in categories]:
+            selected_category = next(cat for cat in categories if cat.lower() == user_msg_lower)
+            reply = format_items(menu, selected_category)
+
+        # =========================
+        # 💳 PAYMENT FLOW
+        # =========================
         else:
-            # =========================
-            # 🧠 ORDER FLOW
-            # =========================
-            order_reply = handle_order(user_msg, session, menu)
+            payment_reply = handle_payment(user_msg, session, menu)
 
-            if order_reply:
-                reply = order_reply
+            if payment_reply:
+                reply = payment_reply
             else:
-                reply = "❌ Invalid option.\n\nType MENU to see options."
+                # =========================
+                # 🧠 ORDER FLOW
+                # =========================
+                order_reply = handle_order(user_msg, session, menu)
+
+                if order_reply:
+                    reply = order_reply
+                else:
+                    reply = "❌ Invalid option.\n\nType MENU to see options."
+    except Exception as e:
+        print("❌ Webhook Error:", str(e))
+        reply = "⚠️ Temporary issue. Please type MENU again."
 
     # =========================
     # 📤 TWILIO RESPONSE
