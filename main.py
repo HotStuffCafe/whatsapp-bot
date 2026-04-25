@@ -1,123 +1,99 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import Response, JSONResponse
+import requests
 
-from menu import get_menu_data, format_categories, format_items, format_all_items
-from ORDER import handle_order
-from payment import handle_payment, handle_payment_callback, handle_payment_callback_query
-from sheet_update import test_connection
-
-app = FastAPI()
-
-user_sessions = {}
-
-
-@app.get("/")
-def root():
-    return {"status": "running"}
+# =========================
+# GOOGLE SHEET CONFIG
+# =========================
+SHEET_URL = "https://opensheet.elk.sh/1HNU2ySZeqoSCZu3qHggLqGud4qbyPIlr12tj6xHNMnE/MENU"
 
 
 # =========================
-# 📩 WHATSAPP WEBHOOK
+# LOAD MENU FROM SHEET
 # =========================
-@app.post("/webhook")
-async def whatsapp_webhook(request: Request):
+def get_menu_data():
     try:
-        data = await request.form()
+        response = requests.get(SHEET_URL, timeout=8)
+        response.raise_for_status()
+        data = response.json()
 
-        user_msg = data.get("Body", "").strip()
-        user_msg_lower = user_msg.lower()
-        user_number = data.get("From")
+        menu = {}
 
-        menu = get_menu_data()
+        for row in data:
+            category = row.get("Category", "").strip()
+            item = row.get("Item Name", "").strip()
+            price = float(row.get("Price", 0))
 
-        if user_number not in user_sessions:
-            user_sessions[user_number] = {}
+            if not category or not item:
+                continue
 
-        session = user_sessions[user_number]
+            if category not in menu:
+                menu[category] = []
 
-        # ✅ IMPORTANT FIX
-        session["user_number"] = user_number
-        session["menu"] = menu   # 🔥 REQUIRED FOR SHEET PRICING
+            menu[category].append({
+                "item": item,
+                "price": price
+            })
 
-        categories = list(menu.keys())
+        return menu
 
-        # =========================
-        # 🔥 GLOBAL COMMANDS
-        # =========================
-        if user_msg_lower in ["hi", "hello", "menu", "back", "show menu"]:
-            session.clear()
-            session["user_number"] = user_number
-            session["menu"] = menu
-
-            text, cats = format_categories(menu)
-            session["categories"] = cats
-            reply = text
-
-        elif user_msg_lower == "all items":
-            reply = format_all_items(menu)
-
-        elif user_msg_lower == "test sheet":
-            reply = test_connection()
-
-        elif user_msg.isdigit() and 1 <= int(user_msg) <= len(categories):
-            selected_category = categories[int(user_msg) - 1]
-            reply = format_items(menu, selected_category)
-
-        elif user_msg_lower in [cat.lower() for cat in categories]:
-            selected_category = next(cat for cat in categories if cat.lower() == user_msg_lower)
-            reply = format_items(menu, selected_category)
-
-        # =========================
-        # 💳 PAYMENT FLOW
-        # =========================
-        else:
-            payment_reply = handle_payment(user_msg, session, menu)
-
-            if payment_reply:
-                reply = payment_reply
-            else:
-                # =========================
-                # 🧠 ORDER FLOW
-                # =========================
-                order_reply = handle_order(user_msg, session, menu)
-
-                if order_reply:
-                    reply = order_reply
-                else:
-                    reply = "❌ Invalid option.\n\nType MENU to see options."
     except Exception as e:
-        print("❌ Webhook Error:", str(e))
-        reply = "⚠️ Temporary issue. Please type MENU again."
-
-    # =========================
-    # 📤 TWILIO RESPONSE
-    # =========================
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Message>{reply}</Message>
-</Response>"""
-
-    return Response(content=twiml, media_type="application/xml")
+        print("Menu Load Error:", e)
+        return {}
 
 
 # =========================
-# 🔔 RAZORPAY CALLBACK
+# FORMAT CATEGORY LIST
 # =========================
-@app.get("/payment/callback_uat1.1")
-async def payment_callback_get(request: Request):
-    params = dict(request.query_params)
-    payment_id = params.get("razorpay_payment_id", "")
-    order_id = params.get("razorpay_payment_link_reference_id", "").strip()
+def format_categories(menu):
 
-    print("Razorpay GET callback:", params)
-    result = handle_payment_callback_query(params)
-    return JSONResponse(content={"status": result, "payment_id": payment_id, "order_id": order_id})
+    text = "📋 *Menu Categories*\n\n"
+    categories = list(menu.keys())
+
+    for i, cat in enumerate(categories, 1):
+        text += f"{i}. {cat}\n"
+
+    text += "\n👉 Reply with *number* or *category name*"
+    text += "\n👉 To see all items, type *all items*"
+
+    return text, categories
 
 
-@app.post("/payment/callback_uat1.1")
-async def payment_callback(request: Request):
-    data = await request.json()
+# =========================
+# FORMAT ITEMS (SUB MENU)
+# =========================
+def format_items(menu, category):
 
-    result = handle_payment_callback(data)
+    if category not in menu:
+        return "❌ Category not found."
 
-    return JSONResponse(content={"status": result})
+    text = f"🍽 {category}\n\n"
+
+    items = menu[category]
+
+    for i, item in enumerate(items, 1):
+        text += f"{i}. {item['item']} - ₹{int(item['price'])}\n"
+
+    text += "\n👉 Type *back* or *menu* to go to main menu"
+    text += "\n👉 To see all items, type *all items*"
+    text += "\n👉 To order, type: *add* 2 chai, 1 cold coffee"
+
+    return text
+
+
+# =========================
+# FORMAT ALL ITEMS
+# =========================
+def format_all_items(menu):
+
+    text = "📦 *All Menu Items*\n\n"
+
+    count = 1
+
+    for category, items in menu.items():
+        for item in items:
+            text += f"{count}. {category} | {item['item']} | ₹{int(item['price'])}\n"
+            count += 1
+
+    text += "\n👉 Type *menu* to go back"
+    text += "\n👉 To order, type: *add* 2 chai, 1 cold coffee"
+
+    return text
