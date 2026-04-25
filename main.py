@@ -107,10 +107,11 @@ async def whatsapp_webhook(request: Request):
 async def payment_callback_get(request: Request):
     params = dict(request.query_params)
     payment_id = params.get("razorpay_payment_id", "")
+    order_id = params.get("razorpay_payment_link_reference_id", "").strip()
 
     print("Razorpay GET callback:", params)
     result = handle_payment_callback_query(params)
-    return JSONResponse(content={"status": result, "payment_id": payment_id})
+    return JSONResponse(content={"status": result, "payment_id": payment_id, "order_id": order_id})
 
 
 @app.post("/payment/callback_uat1.1")
