@@ -152,7 +152,7 @@ Pay here:
     return None
 
 
-def finalize_paid_order(order_id):
+def finalize_paid_order(order_id, payment_id=""):
     order_data = PENDING_PAYMENT_ORDERS.pop(order_id, None)
 
     # First try updating existing pending rows in sheet
@@ -160,7 +160,14 @@ def finalize_paid_order(order_id):
         return "success"
 
     if not order_data:
-        return "callback_received_but_order_not_reconciled"
+        fallback_session = {
+            "cart": {"ONLINE_PAYMENT": {"qty": 1, "price": 0}},
+            "address": f"Razorpay Payment ID: {payment_id}" if payment_id else "Razorpay Payment",
+            "user_number": "",
+            "menu": {}
+        }
+        update_google_sheet(fallback_session, order_id, "UPI", "Success")
+        return "success_unreconciled_row_created"
 
     order_session = order_data["session"]
     update_google_sheet(order_session, order_id, "UPI", "Success")
@@ -182,13 +189,15 @@ def handle_payment_callback(data):
         payload = data.get("payload", {})
         entity = payload.get("payment_link", {}).get("entity", {})
 
-        order_id = entity.get("notes", {}).get("order_id") or entity.get("reference_id")
+        order_id = (entity.get("notes", {}).get("order_id") or entity.get("reference_id") or "").strip()
 
         if not order_id:
             return "no order id"
 
+        payment_id = payload.get("payment", {}).get("entity", {}).get("id", "")
+
         print(f"✅ Payment SUCCESS for Order: {order_id}")
-        return finalize_paid_order(order_id)
+        return finalize_paid_order(order_id, payment_id)
 
     except Exception as e:
         print("❌ Webhook Error:", str(e))
@@ -197,7 +206,8 @@ def handle_payment_callback(data):
 
 def handle_payment_callback_query(query_params):
     status = query_params.get("razorpay_payment_link_status", "")
-    order_id = query_params.get("razorpay_payment_link_reference_id", "")
+    order_id = query_params.get("razorpay_payment_link_reference_id", "").strip()
+    payment_id = query_params.get("razorpay_payment_id", "")
 
     if status != "paid":
         return "ignored"
@@ -206,4 +216,4 @@ def handle_payment_callback_query(query_params):
         return "no order id"
 
     print(f"✅ Payment SUCCESS (GET callback) for Order: {order_id}")
-    return finalize_paid_order(order_id)
+    return finalize_paid_order(order_id, payment_id)
