@@ -11,7 +11,8 @@ SHEET_URL = "https://opensheet.elk.sh/1HNU2ySZeqoSCZu3qHggLqGud4qbyPIlr12tj6xHNM
 # =========================
 def get_menu_data():
     try:
-        response = requests.get(SHEET_URL)
+        response = requests.get(SHEET_URL, timeout=8)
+        response.raise_for_status()
         data = response.json()
 
         menu = {}
