@@ -14,7 +14,7 @@ def connect_sheet():
         creds_json = os.getenv("GOOGLE_CREDS_JSON")
         creds_path = os.getenv("GOOGLE_CREDS_FILE") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
         sheet_name = os.getenv("ORDER_SHEET_NAME", "ORDER")
-        worksheet_name = os.getenv("ORDER_WORKSHEET")
+        worksheet_name = os.getenv("ORDER_WORKSHEET", "ORDER")
         sheet_id = os.getenv("ORDER_SHEET_ID")
 
         creds_dict = None
@@ -44,10 +44,22 @@ def connect_sheet():
         else:
             spreadsheet = client.open(sheet_name)
 
-        if worksheet_name:
+        try:
             sheet = spreadsheet.worksheet(worksheet_name)
-        else:
-            sheet = spreadsheet.sheet1
+        except Exception:
+            sheet = spreadsheet.add_worksheet(title=worksheet_name, rows=2000, cols=20)
+            sheet.append_row([
+                "today",
+                "order_id",
+                "phone",
+                "item_name",
+                "qty",
+                "price",
+                "total",
+                "address",
+                "payment_mode",
+                "payment_status"
+            ])
 
         print("✅ Google Sheet Connected")
 
