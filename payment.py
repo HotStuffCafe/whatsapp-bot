@@ -1,5 +1,5 @@
-import os
 import requests
+import os
 from sheet_update import update_google_sheet
 
 
@@ -8,7 +8,8 @@ from sheet_update import update_google_sheet
 # =========================
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
-ENABLE_PAYMENT = os.getenv("ENABLE_PAYMENT", "false").lower()
+def get_enable_payment_mode():
+    return os.getenv("ENABLE_PAYMENT", "false").strip().lower()
 
 
 # =========================
@@ -96,8 +97,8 @@ Pay here:
     # 💵 COD FLOW (only if enabled)
     # =========================
     if msg == "cod":
-
-        if ENABLE_PAYMENT == "paycod":
+        enable_payment_mode = get_enable_payment_mode()
+        if enable_payment_mode == "paycod":
 
             update_google_sheet(
                 session,
