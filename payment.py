@@ -9,6 +9,10 @@ from sheet_update import update_google_sheet, mark_order_payment_success
 # =========================
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
+RAZORPAY_CALLBACK_URL = os.getenv(
+    "RAZORPAY_CALLBACK_URL",
+    "https://whatsapp-bot-34e7.onrender.com/payment/callback_uat1.1"
+)
 
 # In-memory payment order map (replace with DB/Redis in production)
 PENDING_PAYMENT_ORDERS = {}
@@ -41,7 +45,7 @@ def create_payment_link(amount, order_id, phone):
             "order_id": order_id
         },
         "reference_id": order_id,
-        "callback_url": "https://whatsapp-bot-34e7.onrender.com/payment/callback_uat1.1",
+        "callback_url": RAZORPAY_CALLBACK_URL,
         "callback_method": "get"
     }
 
@@ -152,11 +156,11 @@ def finalize_paid_order(order_id):
     order_data = PENDING_PAYMENT_ORDERS.pop(order_id, None)
 
     # First try updating existing pending rows in sheet
-    if mark_order_payment_success(order_id, "UPI"):
+    if mark_order_payment_success(order_id):
         return "success"
 
     if not order_data:
-        return "order_not_found"
+        return "callback_received_but_order_not_reconciled"
 
     order_session = order_data["session"]
     update_google_sheet(order_session, order_id, "UPI", "Success")
