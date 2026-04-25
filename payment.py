@@ -1,5 +1,6 @@
 import requests
 import os
+from copy import deepcopy
 from sheet_update import update_google_sheet
 
 
@@ -8,6 +9,11 @@ from sheet_update import update_google_sheet
 # =========================
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
+
+# In-memory payment order map (replace with DB/Redis in production)
+PENDING_PAYMENT_ORDERS = {}
+
+
 def get_enable_payment_mode():
     return os.getenv("ENABLE_PAYMENT", "false").strip().lower()
 
@@ -34,6 +40,7 @@ def create_payment_link(amount, order_id, phone):
         "notes": {
             "order_id": order_id
         },
+        "reference_id": order_id,
         "callback_url": "https://whatsapp-bot-34e7.onrender.com/payment/callback_uat1.1",
         "callback_method": "get"
     }
@@ -84,6 +91,16 @@ def handle_payment(user_msg, session, menu):
         )
 
         if link:
+            PENDING_PAYMENT_ORDERS[order_id] = {
+                "session": {
+                    "cart": deepcopy(session.get("cart", {})),
+                    "address": session.get("address", ""),
+                    "user_number": session.get("user_number", ""),
+                    "menu": deepcopy(menu)
+                },
+                "payment_mode": "UPI",
+                "payment_status": "Pending"
+            }
             return f"""💳 Payment Link
 
 Pay here:
@@ -120,6 +137,16 @@ Pay here:
     return None
 
 
+def finalize_paid_order(order_id):
+    order_data = PENDING_PAYMENT_ORDERS.pop(order_id, None)
+    if not order_data:
+        return "order_not_found"
+
+    order_session = order_data["session"]
+    update_google_sheet(order_session, order_id, "UPI", "Success")
+    return "success"
+
+
 # =========================
 # 🔔 RAZORPAY WEBHOOK CALLBACK
 # =========================
@@ -135,19 +162,28 @@ def handle_payment_callback(data):
         payload = data.get("payload", {})
         entity = payload.get("payment_link", {}).get("entity", {})
 
-        order_id = entity.get("notes", {}).get("order_id")
+        order_id = entity.get("notes", {}).get("order_id") or entity.get("reference_id")
 
         if not order_id:
             return "no order id"
 
         print(f"✅ Payment SUCCESS for Order: {order_id}")
-
-        # ⚠️ IMPORTANT LIMITATION:
-        # No session available here yet
-        # So only logging for now
-
-        return "success"
+        return finalize_paid_order(order_id)
 
     except Exception as e:
         print("❌ Webhook Error:", str(e))
         return "error"
+
+
+def handle_payment_callback_query(query_params):
+    status = query_params.get("razorpay_payment_link_status", "")
+    order_id = query_params.get("razorpay_payment_link_reference_id", "")
+
+    if status != "paid":
+        return "ignored"
+
+    if not order_id:
+        return "no order id"
+
+    print(f"✅ Payment SUCCESS (GET callback) for Order: {order_id}")
+    return finalize_paid_order(order_id)
