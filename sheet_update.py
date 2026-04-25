@@ -1,5 +1,6 @@
 import os
 import json
+import base64
 import gspread
 from datetime import datetime
 from google.oauth2.service_account import Credentials
@@ -11,19 +12,42 @@ from google.oauth2.service_account import Credentials
 def connect_sheet():
     try:
         creds_json = os.getenv("GOOGLE_CREDS_JSON")
+        creds_path = os.getenv("GOOGLE_CREDS_FILE") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+        sheet_name = os.getenv("ORDER_SHEET_NAME", "ORDER")
+        worksheet_name = os.getenv("ORDER_WORKSHEET")
+        sheet_id = os.getenv("ORDER_SHEET_ID")
 
-        if not creds_json:
-            print("❌ GOOGLE_CREDS_JSON not found")
+        creds_dict = None
+
+        if creds_json:
+            try:
+                creds_dict = json.loads(creds_json)
+            except json.JSONDecodeError:
+                decoded = base64.b64decode(creds_json).decode("utf-8")
+                creds_dict = json.loads(decoded)
+        elif creds_path and os.path.exists(creds_path):
+            with open(creds_path, "r", encoding="utf-8") as f:
+                creds_dict = json.load(f)
+        else:
+            print("❌ GOOGLE_CREDS_JSON / GOOGLE_CREDS_FILE not found")
             return None
 
-        creds_dict = json.loads(creds_json)
+        if "private_key" in creds_dict:
+            creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
 
         scopes = ["https://www.googleapis.com/auth/spreadsheets"]
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
 
         client = gspread.authorize(creds)
+        if sheet_id:
+            spreadsheet = client.open_by_key(sheet_id)
+        else:
+            spreadsheet = client.open(sheet_name)
 
-        sheet = client.open("ORDER").sheet1
+        if worksheet_name:
+            sheet = spreadsheet.worksheet(worksheet_name)
+        else:
+            sheet = spreadsheet.sheet1
 
         print("✅ Google Sheet Connected")
 
