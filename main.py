@@ -1,5 +1,7 @@
 from fastapi import FastAPI, Request
-from fastapi.responses import Response, JSONResponse
+from fastapi.responses import Response, JSONResponse, HTMLResponse
+import importlib.util
+import os
 
 app = FastAPI()
 
@@ -105,22 +107,32 @@ async def whatsapp_webhook(request: Request):
 # =========================
 @app.get("/payment/callback_uat1.1")
 async def payment_callback_get(request: Request):
-    from payment import handle_payment_callback_query
     from payload import save_payload_to_sheet
 
     params = dict(request.query_params)
-    payment_id = params.get("razorpay_payment_id", "")
     order_id = params.get("razorpay_payment_link_reference_id", "").strip()
 
     print("Razorpay GET callback:", params)
     payload_result = save_payload_to_sheet(params, str(request.url))
-    result = handle_payment_callback_query(params)
-    return JSONResponse(content={
-        "status": result,
-        "payload_status": payload_result,
-        "payment_id": payment_id,
-        "order_id": order_id
-    })
+
+    callback_module_path = os.path.join(os.path.dirname(__file__), "CALLBACK ACITON.py")
+    spec = importlib.util.spec_from_file_location("callback_aciton_module", callback_module_path)
+    callback_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(callback_module)
+    callback_result = callback_module.handle_callback_action(order_id)
+
+    status = callback_result.get("status", "processed")
+    html = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; padding: 24px;">
+        <h2>Payment callback received</h2>
+        <p>Order ID: <b>{order_id or "N/A"}</b></p>
+        <p>Status: <b>{status}</b></p>
+        <p>You can close this page and return to WhatsApp.</p>
+      </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
 
 
 @app.post("/payment/callback_uat1.1")
