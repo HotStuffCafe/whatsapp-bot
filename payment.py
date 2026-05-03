@@ -1,5 +1,6 @@
 import requests
 import os
+import importlib.util
 from copy import deepcopy
 from sheet_update import update_google_sheet, mark_order_payment_success
 
@@ -154,12 +155,14 @@ Pay here:
 
 def finalize_paid_order(order_id, payment_id=""):
     order_data = PENDING_PAYMENT_ORDERS.pop(order_id, None)
+    status_result = "error"
 
-    # First try updating existing pending rows in sheet
+    # ==========================================
+    # 1. UPDATE GOOGLE SHEET
+    # ==========================================
     if mark_order_payment_success(order_id):
-        return "success"
-
-    if not order_data:
+        status_result = "success"
+    elif not order_data:
         fallback_session = {
             "cart": {"ONLINE_PAYMENT": {"qty": 1, "price": 0}},
             "address": f"Razorpay Payment ID: {payment_id}" if payment_id else "Razorpay Payment",
@@ -167,11 +170,42 @@ def finalize_paid_order(order_id, payment_id=""):
             "menu": {}
         }
         update_google_sheet(fallback_session, order_id, "UPI", "Success")
-        return "success_unreconciled_row_created"
+        status_result = "success_unreconciled_row_created"
+    else:
+        order_session = order_data["session"]
+        update_google_sheet(order_session, order_id, "UPI", "Success")
+        status_result = "success"
 
-    order_session = order_data["session"]
-    update_google_sheet(order_session, order_id, "UPI", "Success")
-    return "success"
+    # ==========================================
+    # 2. LOAD YOUR WHATSAPP FUNCTIONS SAFELY
+    # ==========================================
+    callback_module_path = os.path.join(os.path.dirname(__file__), "CALLBACK ACITON.py")
+    spec = importlib.util.spec_from_file_location("callback_action_module", callback_module_path)
+    callback_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(callback_module)
+
+    # ==========================================
+    # 3. GET PHONE NUMBER
+    # ==========================================
+    phone = ""
+    # Try to get the number from memory first
+    if order_data and order_data.get("session", {}).get("user_number"):
+        phone = order_data["session"]["user_number"]
+    else:
+        # Fallback to checking the Google Sheet
+        phone, _ = callback_module._get_order_context(order_id)
+
+    # ==========================================
+    # 4. SEND THE SUCCESS NOTIFICATION
+    # ==========================================
+    if phone:
+        # Using the exact success formatting you requested
+        success_msg = f"Order ID: {order_id}\nYour order is confirmed"
+        callback_module.send_whatsapp_message(phone, success_msg)
+    else:
+        print(f"⚠️ Could not find phone number to notify for Order: {order_id}")
+
+    return status_result
 
 
 # =========================
