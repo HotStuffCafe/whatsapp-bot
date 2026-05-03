@@ -218,6 +218,14 @@ Reply *PAY* to complete payment and confirm your order."""
         # SAVE TO SHEET
         update_google_sheet(session, order_id, "COD", "Success")
 
+        from kot import send_kot_to_kitchen
+        send_kot_to_kitchen(
+            order_id, 
+            session.get("cart", {}), 
+            session.get("address", ""), 
+            session.get("total", 0), 
+            "CASH ON DELIVERY"
+        )
         session.clear()
 
         return f"""✅ Order Confirmed!
