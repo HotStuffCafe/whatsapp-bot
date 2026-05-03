@@ -126,15 +126,12 @@ def handle_callback_action(order_id):
 
     mode = get_enable_payment_mode()
 
-    # ==========================================
-    # 1. SUCCESS MESSAGE (Updated format)
+    # ========================================== 
+    #1. SUCCESS MESSAGE (Updated format)
     # ==========================================
     if status == "paid":
+        # This function now handles BOTH updating the sheet and sending the message!
         finalize_paid_order(order_id, payment_id)
-        send_whatsapp_message(
-            phone,
-            f"Order ID: {order_id}\nYour order is confirmed"
-        )
         return {"status": "success_notified"}
 
     # Generate a fresh payment link for the failure messages
