@@ -209,8 +209,18 @@ def finalize_paid_order(order_id, payment_id=""):
     # 4. SEND THE SUCCESS NOTIFICATION
     # ==========================================
     if phone:
+        # 1. Send the message to the customer (ONLY ONCE)
         success_msg = f"Order ID: {order_id}\nYour order is confirmed"
         callback_module.send_whatsapp_message(phone, success_msg)
+        
+        # 2. Trigger the KOT to the kitchen
+        from kot import send_kot_to_kitchen
+        if order_data and "session" in order_data:
+            cart = order_data["session"].get("cart", {})
+            address = order_data["session"].get("address", "")
+            total = order_data["session"].get("total", 0)
+            send_kot_to_kitchen(order_id, cart, address, total, "ONLINE PAID")
+            
     else:
         print(f"⚠️ Could not find phone number to notify for Order: {order_id}")
 
