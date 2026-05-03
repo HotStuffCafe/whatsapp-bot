@@ -18,6 +18,8 @@ RAZORPAY_CALLBACK_URL = os.getenv(
 # In-memory payment order map (replace with DB/Redis in production)
 PENDING_PAYMENT_ORDERS = {}
 
+# Keep track of orders we have already notified to prevent spam
+NOTIFIED_ORDERS = set()
 
 def get_enable_payment_mode():
     return os.getenv("ENABLE_PAYMENT", "false").strip().lower()
@@ -154,12 +156,22 @@ Pay here:
 
 
 def finalize_paid_order(order_id, payment_id=""):
-    order_data = PENDING_PAYMENT_ORDERS.pop(order_id, None)
-    status_result = "error"
+    # ==========================================
+    # 🛑 NEW: DUPLICATE PREVENTION LOCK
+    # ==========================================
+    if order_id in NOTIFIED_ORDERS:
+        print(f"⏩ Order {order_id} already confirmed and notified. Skipping duplicate.")
+        return "already_processed"
+        
+    # Add to our memory bank so it doesn't get processed again!
+    NOTIFIED_ORDERS.add(order_id)
 
     # ==========================================
     # 1. UPDATE GOOGLE SHEET
     # ==========================================
+    order_data = PENDING_PAYMENT_ORDERS.pop(order_id, None)
+    status_result = "error"
+
     if mark_order_payment_success(order_id):
         status_result = "success"
     elif not order_data:
@@ -188,25 +200,21 @@ def finalize_paid_order(order_id, payment_id=""):
     # 3. GET PHONE NUMBER
     # ==========================================
     phone = ""
-    # Try to get the number from memory first
     if order_data and order_data.get("session", {}).get("user_number"):
         phone = order_data["session"]["user_number"]
     else:
-        # Fallback to checking the Google Sheet
         phone, _ = callback_module._get_order_context(order_id)
 
     # ==========================================
     # 4. SEND THE SUCCESS NOTIFICATION
     # ==========================================
     if phone:
-        # Using the exact success formatting you requested
         success_msg = f"Order ID: {order_id}\nYour order is confirmed"
         callback_module.send_whatsapp_message(phone, success_msg)
     else:
         print(f"⚠️ Could not find phone number to notify for Order: {order_id}")
 
     return status_result
-
 
 # =========================
 # 🔔 RAZORPAY WEBHOOK CALLBACK
