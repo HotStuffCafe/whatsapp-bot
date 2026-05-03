@@ -126,28 +126,39 @@ def handle_callback_action(order_id):
 
     mode = get_enable_payment_mode()
 
+    # ==========================================
+    # 1. SUCCESS MESSAGE (Updated format)
+    # ==========================================
     if status == "paid":
         finalize_paid_order(order_id, payment_id)
         send_whatsapp_message(
             phone,
-            f"✅ Payment received.\n🆔 Order ID: {order_id}\nYour order is confirmed."
+            f"Order ID: {order_id}\nYour order is confirmed"
         )
         return {"status": "success_notified"}
 
+    # Generate a fresh payment link for the failure messages
     payment_link = create_payment_link(total, order_id, phone) if total > 0 else None
 
+    # ==========================================
+    # 2. FAILURE MESSAGE - PAYCOD (Updated format)
+    # ==========================================
     if mode == "paycod":
         msg = (
             f"⚠️ Payment is not completed for Order ID {order_id} (status: {status}).\n"
             "Your order confirmation is pending.\n"
             "You can still confirm by replying *COD*."
         )
+        # Optional: Add the fresh payment link back to the message so they can try again
         if payment_link:
             msg += f"\n\nOr pay now using this link:\n{payment_link}"
+            
         send_whatsapp_message(phone, msg)
         return {"status": "pending_notified_paycod"}
 
-    # payonly / others
+    # ==========================================
+    # 3. FAILURE MESSAGE - PAYONLY (Fallback)
+    # ==========================================
     msg = (
         f"⚠️ Payment is not completed for Order ID {order_id} (status: {status}).\n"
         "Your order confirmation is pending.\n"
