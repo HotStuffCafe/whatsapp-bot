@@ -128,9 +128,16 @@ def handle_bulk_menu_update(user_msg):
 def handle_sales_summary(msg):
     try:
         ws_order = _get_worksheet(os.getenv("ORDER_WORKSHEET", "ORDER"))
-        rows = ws_order.get_all_records()
+        raw_rows = ws_order.get_all_records()
         
-        # 1. Fetch current menu to map Items to Categories & Prices
+        # 0. NORMALIZE HEADERS: Make all keys lowercase and replace underscores with spaces
+        # e.g., 'item_name' becomes 'item name', 'payment_status' becomes 'payment status'
+        rows = []
+        for r in raw_rows:
+            normalized_row = {str(k).strip().lower().replace("_", " "): v for k, v in r.items()}
+            rows.append(normalized_row)
+        
+        # 1. Fetch current menu to map Items to Categories
         try:
             ws_menu = _get_worksheet("MENU")
             menu_records = ws_menu.get_all_records()
@@ -138,85 +145,109 @@ def handle_sales_summary(msg):
             for r in menu_records:
                 name = str(r.get("Item Name", "")).strip().lower()
                 cat = str(r.get("Category", "Uncategorized")).strip()
-                price = float(r.get("Price", 0) or 0)
-                item_details[name] = {"category": cat, "price": price}
+                item_details[name] = {"category": cat}
         except:
-            item_details = {} # Fallback if menu fails
+            item_details = {} 
 
-        # 2. Filter rows by Date
-        filtered_rows = []
-        today_str = datetime.now().strftime("%d/%m/%Y") 
-        month_str = datetime.now().strftime("/%m/%Y")
+        # 2. Setup Target Dates
+        today_date = datetime.now().date()
         period_name = "Custom Range"
+        filtered_rows = []
         
-        if "today" in msg:
-            filtered_rows = [r for r in rows if today_str in str(r.get("Date", ""))]
+        match = re.search(r"(\d{2}[-/]\d{2}[-/]\d{2,4}).*to.*(\d{2}[-/]\d{2}[-/]\d{2,4})", msg)
+        start_date = None
+        end_date = None
+        
+        if match:
+            def parse_user_date(d_str):
+                d_str = d_str.replace("-", "/")
+                if len(d_str.split("/")[-1]) == 4:
+                    return datetime.strptime(d_str, "%d/%m/%Y").date()
+                else:
+                    return datetime.strptime(d_str, "%d/%m/%y").date()
+            try:
+                start_date = parse_user_date(match.group(1))
+                end_date = parse_user_date(match.group(2))
+                period_name = f"{match.group(1)} to {match.group(2)}"
+            except:
+                return "❌ Invalid date format in range."
+        elif "today" in msg:
             period_name = "Today"
         elif "month" in msg:
-            filtered_rows = [r for r in rows if month_str in str(r.get("Date", ""))]
             period_name = "This Month"
         else:
-            match = re.search(r"(\d{2}[-/]\d{2}[-/]\d{4}).*to.*(\d{2}[-/]\d{2}[-/]\d{4})", msg)
-            if match:
-                start_date = datetime.strptime(match.group(1).replace("-", "/"), "%d/%m/%Y")
-                end_date = datetime.strptime(match.group(2).replace("-", "/"), "%d/%m/%Y")
-                period_name = f"{match.group(1)} to {match.group(2)}"
-                for r in rows:
-                    try:
-                        row_date_str = str(r.get("Date", "")).split()[0].replace("-", "/")
-                        row_date = datetime.strptime(row_date_str, "%d/%m/%Y")
-                        if start_date <= row_date <= end_date:
-                            filtered_rows.append(r)
-                    except: continue
-            else:
-                return "❌ Invalid date format. Use: sales summary DD/MM/YYYY to DD/MM/YYYY"
+            return "❌ Invalid format. Use: sales summary today, month, or DD/MM/YY to DD/MM/YY"
 
-        # 3. Tally Sales & Items
+        # 3. Filter Rows by Date robustly (Looking at the 'today' column)
+        for row in rows:
+            # Your sheet uses the header "today" for dates
+            raw_date = str(row.get("today", "")).strip()
+            if not raw_date: 
+                continue
+            
+            # Parse DD-MM-YYYY format from your sheet
+            try:
+                # Standardize to hyphens just in case
+                clean_date_str = raw_date.replace("/", "-").split()[0] 
+                r_date = datetime.strptime(clean_date_str, "%d-%m-%Y").date()
+            except:
+                continue 
+                
+            # Do the matching
+            if "today" in msg:
+                if r_date == today_date: filtered_rows.append(row)
+            elif "month" in msg:
+                if r_date.month == today_date.month and r_date.year == today_date.year: filtered_rows.append(row)
+            elif match:
+                if start_date <= r_date <= end_date: filtered_rows.append(row)
+
+        # 4. Tally Sales & Items (Based on 1 row per item structure)
         sales = {"Online payment": 0, "COD": 0, "Pending": 0}
-        item_tally = {} # Format: {name: {"display_name": "", "category": "", "count": 0, "amount": 0}}
+        item_tally = {} 
 
         for row in filtered_rows:
-            status = str(row.get("Payment Status", "")).strip().lower()
-            mode = str(row.get("Payment Mode", "")).strip().upper()
-            total = float(row.get("Total Amount", 0) or 0)
+            status = str(row.get("payment status", "")).strip().lower()
+            mode = str(row.get("payment mode", "")).strip().upper()
+            
+            total_raw = str(row.get("total", "0"))
+            total_clean = re.sub(r'[^\d.]', '', total_raw)
+            total = float(total_clean) if total_clean else 0.0
             
             # Tally Revenue Types
-            if status in ["success", "paid"]:
+            if status in ["success", "paid", "received"]:
                 if mode in ["UPI", "NET BANKING", "NB", "ONLINE"]: 
                     sales["Online payment"] += total
-                elif mode == "COD": 
+                elif mode in ["COD", "CASH ON DELIVERY", "CASH"]: 
                     sales["COD"] += total
                 else: 
-                    sales["Online payment"] += total # Fallback successful payments to online
+                    sales["Online payment"] += total # Fallback successful payments
             else:
                 sales["Pending"] += total
 
             # Tally Items (Only for successful orders)
-            if status in ["success", "paid"]:
-                cart_raw = str(row.get("Cart", "") or row.get("Items", ""))
-                items_list = cart_raw.split(",")
-                for item_str in items_list:
-                    match = re.search(r"(.*?)\s*[xX*]\s*(\d+)", item_str.strip())
-                    if match:
-                        raw_name = match.group(1).strip()
-                        name_lower = raw_name.lower()
-                        qty = int(match.group(2))
+            if status in ["success", "paid", "received"]:
+                raw_name = str(row.get("item name", "")).strip()
+                name_lower = raw_name.lower()
+                
+                qty_raw = str(row.get("qty", "0"))
+                qty_clean = re.sub(r'[^\d]', '', qty_raw)
+                qty = int(qty_clean) if qty_clean else 0
+                
+                if raw_name and qty > 0:
+                    cat = item_details.get(name_lower, {}).get("category", "Other")
+                    
+                    if name_lower not in item_tally:
+                        item_tally[name_lower] = {
+                            "display_name": raw_name,
+                            "category": cat,
+                            "count": 0,
+                            "amount": 0
+                        }
                         
-                        cat = item_details.get(name_lower, {}).get("category", "Other")
-                        unit_price = item_details.get(name_lower, {}).get("price", 0)
-                        
-                        if name_lower not in item_tally:
-                            item_tally[name_lower] = {
-                                "display_name": raw_name,
-                                "category": cat,
-                                "count": 0,
-                                "amount": 0
-                            }
-                            
-                        item_tally[name_lower]["count"] += qty
-                        item_tally[name_lower]["amount"] += (qty * unit_price)
+                    item_tally[name_lower]["count"] += qty
+                    item_tally[name_lower]["amount"] += total
 
-        # 4. Build Report
+        # 5. Build Report
         total_sales = sales["Online payment"] + sales["COD"]
         
         report = f"📊 *Sales Summary: {period_name}*\n\n"
@@ -238,7 +269,6 @@ def handle_sales_summary(msg):
             
         for cat, items in categories.items():
             report += f"\n📁 *{cat}*\n"
-            # Sort items in category by highest count
             for item in sorted(items, key=lambda x: x["count"], reverse=True):
                 report += f"• {item['display_name']} | {item['count']} | ₹{item['amount']}\n"
 
@@ -250,7 +280,6 @@ def handle_sales_summary(msg):
     except Exception as e:
         print("Summary Error:", e)
         return "❌ Failed to generate report. Check logs."
-
 # ==========================================
 # 🧠 MAIN ADMIN ROUTER
 # ==========================================
