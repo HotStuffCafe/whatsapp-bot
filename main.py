@@ -42,7 +42,7 @@ async def whatsapp_webhook(request: Request):
         session["menu"] = menu   # 🔥 REQUIRED FOR SHEET PRICING
 
         # =========================
-        # 👑 ADMIN INTERCEPT (Add this block!)
+        # 👑 ADMIN INTERCEPT
         # =========================
         from admin import handle_admin_command
         admin_reply = handle_admin_command(user_msg, user_number)
@@ -51,6 +51,17 @@ async def whatsapp_webhook(request: Request):
             twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
             <Response><Message>{admin_reply}</Message></Response>"""
             return Response(content=twiml, media_type="application/xml")
+
+        # =========================
+        # 👨‍🍳 KITCHEN (KOT) INTERCEPT (Add this new block!)
+        # =========================
+        from kot import is_kot, handle_kot_command
+        if is_kot(user_number):
+            kot_reply = handle_kot_command(user_msg, data) # 'data' contains the Twilio payload needed to read the quoted message
+            if kot_reply:
+                twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+                <Response><Message>{kot_reply}</Message></Response>"""
+                return Response(content=twiml, media_type="application/xml")
 
         categories = list(menu.keys())
 
