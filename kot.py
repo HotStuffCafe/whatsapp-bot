@@ -125,26 +125,53 @@ def handle_kot_command(user_msg, request_data):
     # 3. Update the Google Sheet
     try:
         ws = _get_order_worksheet()
-        records = ws.get_all_records()
-        header = ws.row_values(1)
+        rows = ws.get_all_values() 
         
-        try:
-            status_col = header.index("Payment Status") + 1
-        except ValueError:
-            return "❌ 'Payment Status' column missing in sheet."
+        if not rows:
+            return "❌ Sheet is completely empty."
+            
+        # Clean headers (lowercase, remove spaces at ends)
+        headers = [str(h).strip().lower() for h in rows[0]]
+        
+        # Find Order ID column (Handles both "order id" and "order_id")
+        order_col_idx = None
+        if "order id" in headers:
+            order_col_idx = headers.index("order id")
+        elif "order_id" in headers:
+            order_col_idx = headers.index("order_id")
+            
+        if order_col_idx is None:
+            return f"❌ Could not find 'Order ID' column. Found columns: {', '.join(rows[0])}"
 
+        # Find Payment Status column (Handles "payment status", "payment_status", and "status")
+        status_col_idx = None
+        if "payment_status" in headers:
+            status_col_idx = headers.index("payment_status")
+        elif "payment status" in headers:
+            status_col_idx = headers.index("payment status")
+        elif "status" in headers:
+            status_col_idx = headers.index("status")
+            
+        if status_col_idx is None:
+            return f"❌ Could not find 'Payment Status' column. Found columns: {', '.join(rows[0])}"
+
+        # Update the sheet
         updated_count = 0
-        for i, row in enumerate(records, start=2):
-            if str(row.get("Order ID", "")).strip().upper() == order_id:
-                # Update the cell specifically in the status column
-                ws.update_cell(i, status_col, new_status)
+        for row_idx, row_data in enumerate(rows):
+            if row_idx == 0: 
+                continue # Skip header row
+                
+            # Safely check if this row has the Order ID
+            if len(row_data) > order_col_idx and str(row_data[order_col_idx]).strip().upper() == order_id:
+                # gspread uses 1-based coordinates: (row, col)
+                ws.update_cell(row_idx + 1, status_col_idx + 1, new_status)
                 updated_count += 1
         
         if updated_count > 0:
             return f"✅ COD Payment for {order_id} marked as *{new_status}*."
         else:
-            return f"❌ Order {order_id} not found."
+            return f"❌ Order {order_id} not found in the sheet."
             
     except Exception as e:
         print("KOT Update Error:", e)
-        return "❌ Failed to update status in Google Sheets."
+        return f"❌ Failed to update status in Google Sheets: {str(e)}"
