@@ -37,13 +37,43 @@ def send_kot_to_kitchen(order_id, cart, address, total, payment_mode, customer_p
         print("⚠️ No KOT numbers found in environment variables. Skipping kitchen notification.")
         return
 
+    # ==========================================
+    # 🔍 FALLBACK: FETCH PHONE FROM SHEET
+    # ==========================================
+    if not customer_phone or customer_phone == "Not Provided":
+        try:
+            ws = _get_order_worksheet()
+            rows = ws.get_all_values()
+            if rows:
+                headers = [str(h).strip().lower() for h in rows[0]]
+                
+                # Find Order ID and Phone columns safely
+                order_col = headers.index("order id") if "order id" in headers else (headers.index("order_id") if "order_id" in headers else None)
+                phone_col = headers.index("phone") if "phone" in headers else (headers.index("phone number") if "phone number" in headers else None)
+                
+                if order_col is not None and phone_col is not None:
+                    # Search for the exact Order ID to pull the phone number
+                    for row in rows[1:]:
+                        if len(row) > order_col and str(row[order_col]).strip().upper() == str(order_id).strip().upper():
+                            if len(row) > phone_col and str(row[phone_col]).strip():
+                                customer_phone = str(row[phone_col]).strip()
+                            break
+        except Exception as e:
+            print(f"⚠️ Failed to pull phone from sheet for {order_id}: {e}")
+
+    # ==========================================
+    # 📝 FORMAT KOT MESSAGE
+    # ==========================================
     items_text = ""
     for item, data in cart.items():
         qty = data.get("qty", 1)
         items_text += f"🔸 {qty} x {item}\n"
 
     # Clean the whatsapp: prefix from the phone number so it's clickable/callable
-    phone_display = customer_phone.replace("whatsapp:", "") if customer_phone else "Not Provided"
+    phone_display = customer_phone.replace("whatsapp:", "").replace("+", "") if customer_phone else "Not Provided"
+    # Add the plus back cleanly so it's a clickable link in WhatsApp
+    if phone_display != "Not Provided" and not phone_display.startswith("+"):
+        phone_display = f"+{phone_display}"
 
     kot_msg = (
         f"👨‍🍳 *NEW KITCHEN ORDER* 👨‍🍳\n\n"
@@ -59,8 +89,10 @@ def send_kot_to_kitchen(order_id, cart, address, total, payment_mode, customer_p
     if payment_mode.upper() in ["CASH ON DELIVERY", "COD"]:
         kot_msg += "\n\n*(Reply to this message with 'R' or 'Payment received' to confirm payment)*"
 
+    # ==========================================
+    # 📤 BROADCAST
+    # ==========================================
     send_msg = get_whatsapp_sender()
-    
     for number in kot_numbers:
         target = number if number.startswith("whatsapp:") else f"whatsapp:{number}"
         success = send_msg(target, kot_msg)
