@@ -41,6 +41,17 @@ async def whatsapp_webhook(request: Request):
         session["user_number"] = user_number
         session["menu"] = menu   # 🔥 REQUIRED FOR SHEET PRICING
 
+        # =========================
+        # 👑 ADMIN INTERCEPT (Add this block!)
+        # =========================
+        from admin import handle_admin_command
+        admin_reply = handle_admin_command(user_msg, user_number)
+        
+        if admin_reply:
+            twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+            <Response><Message>{admin_reply}</Message></Response>"""
+            return Response(content=twiml, media_type="application/xml")
+
         categories = list(menu.keys())
 
         # =========================
