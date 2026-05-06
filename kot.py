@@ -31,7 +31,7 @@ def is_kot(user_number):
     kot_clean = [n.replace("whatsapp:", "").strip() for n in kot_nums]
     return user_clean in kot_clean
 
-def send_kot_to_kitchen(order_id, cart, address, total, payment_mode):
+def send_kot_to_kitchen(order_id, cart, address, total, payment_mode, customer_phone=""):
     kot_numbers = get_kot_numbers()
     if not kot_numbers:
         print("⚠️ No KOT numbers found in environment variables. Skipping kitchen notification.")
@@ -42,11 +42,15 @@ def send_kot_to_kitchen(order_id, cart, address, total, payment_mode):
         qty = data.get("qty", 1)
         items_text += f"🔸 {qty} x {item}\n"
 
+    # Clean the whatsapp: prefix from the phone number so it's clickable/callable
+    phone_display = customer_phone.replace("whatsapp:", "") if customer_phone else "Not Provided"
+
     kot_msg = (
         f"👨‍🍳 *NEW KITCHEN ORDER* 👨‍🍳\n\n"
         f"🆔 *Order ID:* {order_id}\n"
         f"💰 *Mode:* {payment_mode}\n"
-        f"💵 *Value:* ₹{total}\n\n"
+        f"💵 *Value:* ₹{total}\n"
+        f"📞 *Customer:* {phone_display}\n\n"
         f"🧾 *Items:*\n{items_text}\n"
         f"📍 *Address:*\n{address}"
     )
@@ -64,7 +68,6 @@ def send_kot_to_kitchen(order_id, cart, address, total, payment_mode):
             print(f"✅ KOT sent to {target}")
         else:
             print(f"❌ Failed to send KOT to {target}")
-
 
 # ==========================================
 # 🔄 KOT STATUS UPDATE HANDLER
