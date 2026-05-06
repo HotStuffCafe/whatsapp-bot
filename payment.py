@@ -139,7 +139,7 @@ Pay here:
                 session,
                 order_id,
                 "COD",
-                "Success"
+                "Pending"
             )
             from kot import send_kot_to_kitchen
             send_kot_to_kitchen(
