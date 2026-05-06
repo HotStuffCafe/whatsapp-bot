@@ -216,7 +216,7 @@ Reply *PAY* to complete payment and confirm your order."""
         order_id = generate_order_id()
 
         # SAVE TO SHEET
-        update_google_sheet(session, order_id, "COD", "Success")
+        update_google_sheet(session, order_id, "COD", "Pending")
 
         from kot import send_kot_to_kitchen
         send_kot_to_kitchen(
